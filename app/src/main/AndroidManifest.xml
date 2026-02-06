@@ -2,20 +2,31 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.example.app">
 
+    <!-- 网络必须 -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- WebRTC / getUserMedia 核心权限 -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- 可选：帮助后台音频或前台服务（Android 9+ 推荐） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!-- 可选：振动（你已有，但保留） -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- 可选：允许 http 混合内容（如果 Worker 或 polling 有 http 资源） -->
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:theme="@style/AppTheme">
+        android:theme="@style/AppTheme"
+        android:usesCleartextTraffic="true">
+
         <activity android:name=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
