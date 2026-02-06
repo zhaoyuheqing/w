@@ -1,15 +1,16 @@
 apply plugin: 'com.android.application'
 
 android {
-    compileSdkVersion 31
+    compileSdkVersion 28
 
     defaultConfig {
         applicationId "com.example.app"
-        minSdkVersion 21
-        targetSdkVersion 31
+        minSdkVersion 16
+        targetSdkVersion 28
         versionCode 1
         versionName "1.0"
     }
+
     buildTypes {
         release {
             minifyEnabled false
@@ -20,4 +21,6 @@ android {
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
+    implementation 'androidx.appcompat:appcompat:1.1.0'  // 原版或类似
+    implementation 'androidx.core:core:1.0.0'  // 加这个 for SharedPreferences
 }
