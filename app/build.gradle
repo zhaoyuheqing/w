@@ -2,6 +2,7 @@ apply plugin: 'com.android.application'
 
 android {
     compileSdkVersion 28
+    buildToolsVersion "28.0.3"  // 必须加，避免 build tools 找不到
 
     defaultConfig {
         applicationId "com.example.app"
@@ -19,8 +20,17 @@ android {
     }
 }
 
+repositories {
+    google()
+    mavenCentral()
+    jcenter()  // 老项目有时依赖旧仓库，加这个防万一
+}
+
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
-    implementation 'androidx.appcompat:appcompat:1.1.0'  // 原版或类似
-    implementation 'androidx.core:core:1.0.0'  // 加这个 for SharedPreferences
+    
+    // 使用旧的 support library 包，避免 AndroidX 冲突
+    implementation 'com.android.support:appcompat-v7:28.0.0'
+    implementation 'com.android.support:support-v4:28.0.0'      // 支持 NotificationCompat 等
+    implementation 'com.android.support:support-compat:28.0.0'  // 兼容 Notification 等
 }
