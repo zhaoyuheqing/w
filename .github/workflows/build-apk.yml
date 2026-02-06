@@ -15,35 +15,24 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Set up JDK 11
+    - name: Set up JDK 17  # 必须 17，兼容新 sdkmanager
       uses: actions/setup-java@v4
       with:
-        java-version: '11'
+        java-version: '17'
         distribution: 'temurin'
         cache: 'gradle'
 
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
       with:
-        sdk-tools-version: '11076708-latest'
+        cmdline-tools-version: 'latest'  # 用最新版，避免旧版 JDK 冲突
 
     - name: Accept SDK licenses
-      run: |
-        mkdir -p "$ANDROID_HOME/licenses"
-        echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_HOME/licenses/android-sdk-license"
-        echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
-        yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
-        "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;28.0.3" "platforms;android-28" || true
+      run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
-    - name: Configure Gradle
+    - name: Install required SDK components
       run: |
-        mkdir -p ~/.gradle
-        cat << EOF >> ~/.gradle/gradle.properties
-        org.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8
-        org.gradle.daemon=false
-        org.gradle.parallel=false
-        org.gradle.caching=true
-        EOF
+        "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;28.0.3" "platforms;android-28" "platform-tools" || true
 
     - name: Grant gradlew permission
       run: chmod +x ./gradlew
