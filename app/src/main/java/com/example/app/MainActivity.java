@@ -13,15 +13,21 @@ import android.os.Looper;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import androidx.core.app.NotificationCompat;
-import androidx.core.app.NotificationManagerCompat;
+import android.webkit.WebChromeClient;
+import android.webkit.PermissionRequest;
+import android.widget.EditText;
 
 import org.json.JSONObject;
+import org.json.JSONException;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+
+// 使用旧的 support 包
+import android.support.v4.app.NotificationCompat;
+import android.support.v4.app.NotificationManagerCompat;
 
 public class MainActivity extends Activity {
 
@@ -37,16 +43,31 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
 
-        prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
+        // 直接代码创建 WebView 全屏（避免依赖 activity_main.xml 不存在）
+        webView = new WebView(this);
+        setContentView(webView);
 
-        webView = (WebView) findViewById(R.id.activity_main_webview);
         WebSettings webSettings = webView.getSettings();
         webSettings.setJavaScriptEnabled(true);
         webSettings.setDomStorageEnabled(true);
         webSettings.setDatabaseEnabled(true);
+        webSettings.setAllowFileAccess(true);
+        webSettings.setAllowContentAccess(true);
+        webSettings.setMediaPlaybackRequiresUserGesture(false);  // 允许自动播放 WebRTC 视频
+        webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);  // 支持混合内容
+
         webView.setWebViewClient(new MyWebViewClient());
+
+        // 支持 WebRTC 权限自动授权（摄像头/麦克风）
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(final PermissionRequest request) {
+                request.grant(request.getResources());  // 自动允许
+            }
+        });
+
+        prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
 
         // 创建通知渠道（Android 8.0+ 要求）
         createNotificationChannel();
@@ -142,20 +163,21 @@ public class MainActivity extends Activity {
                     }
                 } catch (Exception e) {
                     // 忽略错误，继续轮询
+                    e.printStackTrace();
                 }
             }
         }).start();
     }
 
     private void sendNotification(String title, String message) {
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "connection_channel")
-                .setSmallIcon(R.drawable.ic_launcher_foreground)  // 替换为你的图标
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(MainActivity.this, "connection_channel")
+                .setSmallIcon(android.R.drawable.ic_dialog_info)  // 使用系统图标，避免自定义图标缺失
                 .setContentTitle(title)
                 .setContentText(message)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setAutoCancel(true);
 
-        NotificationManagerCompat notificationManager = NotificationManagerCompat.from(this);
+        NotificationManagerCompat notificationManager = NotificationManagerCompat.from(MainActivity.this);
         notificationManager.notify(1, builder.build());
     }
 
