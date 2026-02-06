@@ -29,7 +29,7 @@ public class MainActivity extends Activity {
     private SharedPreferences prefs;
     private String authKey = "";
     private String room = "r-1";  // 默认房间号，可改
-    private String baseUrl = "https://your-worker.dev/";  // 替换为你的 Worker 域名
+    private String baseUrl = "https://bh.gitj.dpdns.org/";  // 替换为你的 Worker 域名
     private Handler handler;
     private Runnable pollRunnable;
     private boolean isConnected = false;  // 连接状态
