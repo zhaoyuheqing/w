@@ -21,6 +21,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.EditText;
+import android.widget.Toast;
 
 import org.json.JSONObject;
 import org.json.JSONException;
@@ -44,6 +45,10 @@ public class MainActivity extends Activity {
     private Handler handler;
     private Runnable pollRunnable;
     private boolean isConnected = false;  // 连接状态
+
+    // 用于检测视频挂断的定时器
+    private Handler videoCheckHandler = new Handler(Looper.getMainLooper());
+    private Runnable videoCheckRunnable;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -163,6 +168,7 @@ public class MainActivity extends Activity {
                             public void run() {
                                 sendNotification("Connection Established", "Someone has connected to the room!");
                                 stopPolling();
+                                startVideoHangupCheck();  // 新增：开始挂断检测
                             }
                         });
                     }
@@ -174,15 +180,14 @@ public class MainActivity extends Activity {
     }
 
     private void sendNotification(String title, String message) {
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(MainActivity.this, "connection_channel")
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "connection_channel")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle(title)
                 .setContentText(message)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setAutoCancel(true);
 
-        NotificationManagerCompat notificationManager = NotificationManagerCompat.from(MainActivity.this);
-        notificationManager.notify(1, builder.build());
+        NotificationManagerCompat.from(this).notify(1, builder.build());
     }
 
     private void stopPolling() {
@@ -200,53 +205,90 @@ public class MainActivity extends Activity {
         }
     }
 
-    // === PiP 支持：只有检测到有活跃视频时才进入小窗 ===
+    // 新增：检测视频挂断并重启轮询
+    private void startVideoHangupCheck() {
+        videoCheckRunnable = new Runnable() {
+            @Override
+            public void run() {
+                webView.evaluateJavascript(
+                    "(function() {" +
+                    "  try {" +
+                    "    var videos = document.getElementsByTagName('video');" +
+                    "    for (var i = 0; i < videos.length; i++) {" +
+                    "      var v = videos[i];" +
+                    "      if (v.srcObject && !v.paused && !v.ended && v.currentTime > 0.1) {" +
+                    "        return 'active';" +
+                    "      }" +
+                    "    }" +
+                    "    return 'inactive';" +
+                    "  } catch(e) {" +
+                    "    return 'error';" +
+                    "  }" +
+                    "})()",
+                    new ValueCallback<String>() {
+                        @Override
+                        public void onReceiveValue(String result) {
+                            String res = result != null ? result.replace("\"", "") : "error";
+                            if ("inactive".equals(res) || "error".equals(res)) {
+                                isConnected = false;
+                                Toast.makeText(MainActivity.this, "检测到通话挂断，正在重新轮询...", Toast.LENGTH_SHORT).show();
+                                startPolling();
+                            }
+                            videoCheckHandler.postDelayed(this, 10000);
+                        }
+                    });
+            }
+        };
+        videoCheckHandler.postDelayed(videoCheckRunnable, 3000);
+    }
+
+    // PiP 支持：只有检测到有活跃视频时才进入小窗
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
 
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            return;
-        }
-
-        // 检查网页是否有正在播放的视频
         webView.evaluateJavascript(
-            "(function() {" +
-            "  try {" +
-            "    var videos = document.getElementsByTagName('video');" +
-            "    for (var i = 0; i < videos.length; i++) {" +
-            "      var v = videos[i];" +
-            "      if (v.srcObject && !v.paused && !v.ended && v.currentTime > 0.1) {" +
-            "        return 'has_video';" +
-            "      }" +
-            "    }" +
-            "    return 'no_video';" +
-            "  } catch(e) {" +
-            "    return 'error';" +
-            "  }" +
-            "})()",
-            new ValueCallback<String>() {
-                @Override
-                public void onReceiveValue(String result) {
-                    String res = result != null ? result.replace("\"", "") : "error";
-                    if ("has_video".equals(res)) {
-                        PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
-                        Rational aspectRatio = new Rational(16, 9);
-                        pipBuilder.setAspectRatio(aspectRatio);
-                        enterPictureInPictureMode(pipBuilder.build());
-                    }
-                    // 无视频 → 不进入小窗，直接回到桌面
-                }
-            });
+                    "(function() {" +
+                    "  try {" +
+                    "    var videos = document.getElementsByTagName('video');" +
+                    "    for (var i = 0; i < videos.length; i++) {" +
+                    "      var v = videos[i];" +
+                    "      if (v.srcObject && !v.paused && !v.ended && v.currentTime > 0.1) {" +
+                    "        return 'has_video';" +
+                    "      }" +
+                    "    }" +
+                    "    return 'no_video';" +
+                    "  } catch(e) {" +
+                    "    return 'error';" +
+                    "  }" +
+                    "})()",
+                    new ValueCallback<String>() {
+                        @Override
+                        public void onReceiveValue(String result) {
+                            String res = result != null ? result.replace("\"", "") : "error";
+                            if ("has_video".equals(res)) {
+                                PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
+                                Rational aspectRatio = new Rational(16, 9);
+                                pipBuilder.setAspectRatio(aspectRatio);
+                                enterPictureInPictureMode(pipBuilder.build());
+                            }
+                        }
+                    });
     }
 
     @Override
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
-        // 无需额外处理
     }
 
-    private class MyWebViewClient extends WebViewClient {
-        // 如果有自定义逻辑保留，否则为空
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (videoCheckHandler != null && videoCheckRunnable != null) {
+            videoCheckHandler.removeCallbacks(videoCheckRunnable);
+        }
     }
+
+    private class MyWebViewClient extends WebViewClient {}
 }
