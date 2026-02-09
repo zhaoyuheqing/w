@@ -21,10 +21,9 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.EditText;
-import android.widget.Toast;  // 必须补全
+import android.widget.Toast;
 
 import org.json.JSONObject;
-import org.json.JSONException;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -118,13 +117,10 @@ public class MainActivity extends Activity {
 
     private void startPolling() {
         handler = new Handler(Looper.getMainLooper());
-        pollRunnable = new Runnable() {
-            @Override
-            public void run() {
-                pollServer();
-                if (!isConnected) {
-                    handler.postDelayed(this, 3000); // 修复了类型不兼容问题
-                }
+        pollRunnable = () -> {
+            pollServer();
+            if (!isConnected) {
+                handler.postDelayed(this, 3000);
             }
         };
         handler.post(pollRunnable);
@@ -188,34 +184,31 @@ public class MainActivity extends Activity {
 
     // 挂断检测：每10秒检查一次视频状态
     private void startVideoHangupCheck() {
-        videoCheckRunnable = new Runnable() {
-            @Override
-            public void run() {
-                webView.evaluateJavascript(
-                    "(function() {" +
-                    "  try {" +
-                    "    var videos = document.getElementsByTagName('video');" +
-                    "    for (var i = 0; i < videos.length; i++) {" +
-                    "      var v = videos[i];" +
-                    "      if (v.srcObject && !v.paused && !v.ended && v.currentTime > 0.1) {" +
-                    "        return 'active';" +
-                    "      }" +
-                    "    }" +
-                    "    return 'inactive';" +
-                    "  } catch(e) {" +
-                    "    return 'error';" +
-                    "  }" +
-                    "})()",
-                    value -> {
-                        String res = value != null ? value.replace("\"", "") : "error";
-                        if ("inactive".equals(res) || "error".equals(res)) {
-                            isConnected = false;
-                            Toast.makeText(MainActivity.this, "检测到通话挂断，正在重新轮询...", Toast.LENGTH_SHORT).show();
-                            startPolling();
-                        }
-                        videoCheckHandler.postDelayed(this, 10000);
-                    });
-            }
+        videoCheckRunnable = () -> {
+            webView.evaluateJavascript(
+                "(function() {" +
+                "  try {" +
+                "    var videos = document.getElementsByTagName('video');" +
+                "    for (var i = 0; i < videos.length; i++) {" +
+                "      var v = videos[i];" +
+                "      if (v.srcObject && !v.paused && !v.ended && v.currentTime > 0.1) {" +
+                "        return 'active';" +
+                "      }" +
+                "    }" +
+                "    return 'inactive';" +
+                "  } catch(e) {" +
+                "    return 'error';" +
+                "  }" +
+                "})()",
+                value -> {
+                    String res = value != null ? value.replace("\"", "") : "error";
+                    if ("inactive".equals(res) || "error".equals(res)) {
+                        isConnected = false;
+                        Toast.makeText(this, "检测到通话挂断，正在重新轮询...", Toast.LENGTH_SHORT).show();
+                        startPolling();
+                    }
+                    videoCheckHandler.postDelayed(this, 10000);
+                });
         };
         videoCheckHandler.postDelayed(videoCheckRunnable, 3000);
     }
@@ -226,6 +219,7 @@ public class MainActivity extends Activity {
         super.onUserLeaveHint();
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
 
+        // 检测页面中的视频元素
         webView.evaluateJavascript(
             "(function() {" +
             "  try {" +
@@ -244,9 +238,13 @@ public class MainActivity extends Activity {
             value -> {
                 String res = value != null ? value.replace("\"", "") : "error";
                 if ("has_video".equals(res)) {
+                    // 只有检测到正在播放的视频才触发 PiP 模式
                     PictureInPictureParams.Builder builder = new PictureInPictureParams.Builder();
                     builder.setAspectRatio(new Rational(16, 9));
                     enterPictureInPictureMode(builder.build());
+                } else {
+                    // 如果没有视频，可以选择不触发 PiP 或做其他处理
+                    Log.d("PiP", "没有找到视频或视频不可用");
                 }
             });
     }
