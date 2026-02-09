@@ -14,7 +14,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Rational;
-import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -22,7 +21,6 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.EditText;
-import android.widget.Toast;
 
 import org.json.JSONObject;
 import org.json.JSONException;
@@ -32,6 +30,7 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
+// 使用旧的 support 包
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.app.NotificationManagerCompat;
 
@@ -45,10 +44,6 @@ public class MainActivity extends Activity {
     private Handler handler;
     private Runnable pollRunnable;
     private boolean isConnected = false;  // 连接状态
-
-    // 用于检测视频挂断的定时器
-    private Handler videoCheckHandler = new Handler(Looper.getMainLooper());
-    private Runnable videoCheckRunnable;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -93,7 +88,7 @@ public class MainActivity extends Activity {
     }
 
     private void createNotificationChannel() {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel("connection_channel", "Connection Notifications", NotificationManager.IMPORTANCE_DEFAULT);
             NotificationManager manager = getSystemService(NotificationManager.class);
             manager.createNotificationChannel(channel);
@@ -136,11 +131,11 @@ public class MainActivity extends Activity {
             public void run() {
                 pollServer();
                 if (!isConnected) {
-                    handler.postDelayed(this, 3000);  // 继续轮询
+                    handler.postDelayed(this, 3000);
                 }
             }
         };
-        handler.post(pollRunnable);  // 立即开始第一次轮询
+        handler.post(pollRunnable);
     }
 
     private void pollServer() {
@@ -168,12 +163,10 @@ public class MainActivity extends Activity {
                             public void run() {
                                 sendNotification("Connection Established", "Someone has connected to the room!");
                                 stopPolling();
-                                startVideoHangupCheck();  // 连接成功后开始检测挂断
                             }
                         });
                     }
                 } catch (Exception e) {
-                    // 忽略错误，继续轮询
                     e.printStackTrace();
                 }
             }
@@ -207,53 +200,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    // ==================== 新增：检测视频挂断并重启轮询 ====================
-
-    private void startVideoHangupCheck() {
-        videoCheckRunnable = new Runnable() {
-            @Override
-            public void run() {
-                webView.evaluateJavascript(
-                    "(function() {" +
-                    "  try {" +
-                    "    var videos = document.getElementsByTagName('video');" +
-                    "    for (var i = 0; i < videos.length; i++) {" +
-                    "      var v = videos[i];" +
-                    "      if (v.srcObject && !v.paused && !v.ended && v.currentTime > 0.1) {" +
-                    "        return 'active';" +
-                    "      }" +
-                    "    }" +
-                    "    return 'inactive';" +
-                    "  } catch(e) {" +
-                    "    return 'error';" +
-                    "  }" +
-                    "})()",
-                    new ValueCallback<String>() {
-                        @Override
-                        public void onReceiveValue(String result) {
-                            String res = result != null ? result.replace("\"", "") : "error";
-
-                            if ("inactive".equals(res) || "error".equals(res)) {
-                                // 检测到挂断 / 无视频
-                                isConnected = false;
-                                Toast.makeText(MainActivity.this, "检测到通话挂断，正在重新轮询...", Toast.LENGTH_SHORT).show();
-                                startPolling();
-                                // 可选择停止检查，或继续监控
-                                // videoCheckHandler.removeCallbacks(this); // 如果想一次性停止，取消注释
-                            }
-                            // 继续下一次检查
-                            videoCheckHandler.postDelayed(this, 10000); // 每10秒检测一次
-                        }
-                    });
-            }
-        };
-
-        // 连接成功后延迟3秒开始第一次检测
-        videoCheckHandler.postDelayed(videoCheckRunnable, 3000);
-    }
-
-    // ==================== PiP 只在有视频时触发 ====================
-
+    // === PiP 支持：只有检测到有活跃视频时才进入小窗 ===
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
@@ -262,6 +209,7 @@ public class MainActivity extends Activity {
             return;
         }
 
+        // 检查网页是否有正在播放的视频
         webView.evaluateJavascript(
             "(function() {" +
             "  try {" +
@@ -281,14 +229,13 @@ public class MainActivity extends Activity {
                 @Override
                 public void onReceiveValue(String result) {
                     String res = result != null ? result.replace("\"", "") : "error";
-
                     if ("has_video".equals(res)) {
                         PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
                         Rational aspectRatio = new Rational(16, 9);
                         pipBuilder.setAspectRatio(aspectRatio);
                         enterPictureInPictureMode(pipBuilder.build());
                     }
-                    // 无视频 → 不进入小窗，正常回到桌面
+                    // 无视频 → 不进入小窗，直接回到桌面
                 }
             });
     }
@@ -299,17 +246,7 @@ public class MainActivity extends Activity {
         // 无需额外处理
     }
 
-    // 可选：在 Activity 销毁时清理检查器，防止内存泄漏
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (videoCheckHandler != null && videoCheckRunnable != null) {
-            videoCheckHandler.removeCallbacks(videoCheckRunnable);
-        }
-    }
-
-    // 假设原有 MyWebViewClient 类（如果没有就留空或删除）
     private class MyWebViewClient extends WebViewClient {
-        // 如果有自定义逻辑，保留；否则可为空
+        // 如果有自定义逻辑保留，否则为空
     }
 }
