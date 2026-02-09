@@ -162,8 +162,8 @@ public class MainActivity extends Activity {
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                sendNotification(getString(R.string.notification_title),
-    getString(R.string.notification_message);
+                                sendNotification(getString(R.string.notify_title),
+    getString(R.string.notify_message));
                                 stopPolling();
                             }
                         });
