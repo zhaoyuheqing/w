@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">你的应用名</string>  <!-- 可改成你想要的名字 -->
+    <string name="app_name">视频</string>  <!-- 可改成你想要的名字 -->
 
     <!-- 通知相关 -->
     <string name="notification_title">连接成功</string>
