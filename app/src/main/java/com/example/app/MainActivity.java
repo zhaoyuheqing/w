@@ -149,7 +149,8 @@ public class MainActivity extends Activity {
                 if (json.has("answer") && !json.isNull("answer") || (json.has("candidates") && json.getJSONArray("candidates").length() > 0)) {
                     isConnected = true;
                     runOnUiThread(() -> {
-                        sendNotification("Connection Established", "Someone has connected to the room!");
+                        sendNotification(getString(R.string.notification_title),
+    getString(R.string.notification_message);
                         stopPolling();
                         startVideoHangupCheck();  // 启动挂断检测
                     });
@@ -247,7 +248,7 @@ public class MainActivity extends Activity {
                 if ("has_video".equals(res)) {
                     // 只有检测到正在播放的视频才触发 PiP 模式
                     PictureInPictureParams.Builder builder = new PictureInPictureParams.Builder();
-                    builder.setAspectRatio(new Rational(16, 9));
+                    builder.setAspectRatio(new Rational(9, 16));
                     enterPictureInPictureMode(builder.build());
                 } else {
                     // 如果没有视频，可以选择不触发 PiP 或做其他处理
