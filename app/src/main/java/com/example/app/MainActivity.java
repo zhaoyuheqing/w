@@ -21,7 +21,6 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.EditText;
-import android.widget.Toast;
 
 import org.json.JSONObject;
 import org.json.JSONException;
@@ -39,18 +38,16 @@ public class MainActivity extends Activity {
     private WebView webView;
     private SharedPreferences prefs;
     private String authKey = "";
-    private String room = "1";
-    private String baseUrl = "https://bh.gitj.dpdns.org/";
+    private String room = "1";  // 默认房间号，可改
+    private String baseUrl = "https://bh.gitj.dpdns.org/";  // 替换为你的 Worker 域名
     private Handler handler;
     private Runnable pollRunnable;
-    private boolean isConnected = false;
-
-    private Handler videoCheckHandler = new Handler(Looper.getMainLooper());
-    private Runnable videoCheckRunnable;
+    private boolean isConnected = false;  // 连接状态
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
         webView = new WebView(this);
         setContentView(webView);
 
@@ -95,16 +92,16 @@ public class MainActivity extends Activity {
 
     private void promptForKey() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Enter Auth Key");
+        builder.setTitle("输入认证密钥");
         final EditText input = new EditText(this);
         builder.setView(input);
-        builder.setPositiveButton("OK", (dialog, which) -> {
+        builder.setPositiveButton("确定", (dialog, which) -> {
             authKey = input.getText().toString().trim();
             prefs.edit().putString("auth_key", authKey).putBoolean("first_run", false).apply();
             loadUrlWithKey();
             startPolling();
         });
-        builder.setNegativeButton("Cancel", (dialog, which) -> {
+        builder.setNegativeButton("取消", (dialog, which) -> {
             dialog.cancel();
             finish();
         });
@@ -146,9 +143,8 @@ public class MainActivity extends Activity {
                 if (json.has("answer") && !json.isNull("answer") || (json.has("candidates") && json.getJSONArray("candidates").length() > 0)) {
                     isConnected = true;
                     runOnUiThread(() -> {
-                        sendNotification("Connection Established", "Someone has connected to the room!");
+                        sendNotification();
                         stopPolling();
-                        startVideoHangupCheck();
                     });
                 }
             } catch (Exception e) {
@@ -157,11 +153,11 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private void sendNotification(String title, String message) {
+    private void sendNotification() {
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "connection_channel")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
-                .setContentTitle(title)
-                .setContentText(message)
+                .setContentTitle("连接成功")
+                .setContentText("有人已加入房间！")
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setAutoCancel(true);
 
@@ -183,41 +179,16 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void startVideoHangupCheck() {
-        videoCheckRunnable = () -> {
-            webView.evaluateJavascript(
-                "(function() {" +
-                "  try {" +
-                "    var videos = document.getElementsByTagName('video');" +
-                "    for (var i = 0; i < videos.length; i++) {" +
-                "      var v = videos[i];" +
-                "      if (v.srcObject && !v.paused && !v.ended && v.currentTime > 0.1) {" +
-                "        return 'active';" +
-                "      }" +
-                "    }" +
-                "    return 'inactive';" +
-                "  } catch(e) {" +
-                "    return 'error';" +
-                "  }" +
-                "})()",
-                value -> {
-                    String res = value != null ? value.replace("\"", "") : "error";
-                    if ("inactive".equals(res) || "error".equals(res)) {
-                        isConnected = false;
-                        Toast.makeText(this, "检测到通话挂断，正在重新轮询...", Toast.LENGTH_SHORT).show();
-                        startPolling();
-                    }
-                    videoCheckHandler.postDelayed(this, 10000);
-                });
-        };
-        videoCheckHandler.postDelayed(videoCheckRunnable, 3000);
-    }
-
+    // PiP 支持：只有检测到有活跃视频时才进入小窗
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
 
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return;
+        }
+
+        // 异步检查网页是否有活跃视频
         webView.evaluateJavascript(
             "(function() {" +
             "  try {" +
@@ -233,27 +204,21 @@ public class MainActivity extends Activity {
             "    return 'error';" +
             "  }" +
             "})()",
-            value -> {
-                String res = value != null ? value.replace("\"", "") : "error";
+            result -> {
+                String res = result != null ? result.replace("\"", "") : "error";
                 if ("has_video".equals(res)) {
-                    PictureInPictureParams.Builder builder = new PictureInPictureParams.Builder();
-                    builder.setAspectRatio(new Rational(16, 9));
-                    enterPictureInPictureMode(builder.build());
+                    PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
+                    Rational aspectRatio = new Rational(16, 9);
+                    pipBuilder.setAspectRatio(aspectRatio);
+                    enterPictureInPictureMode(pipBuilder.build());
                 }
+                // 无视频或错误 → 不进入小窗
             });
     }
 
     @Override
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (videoCheckHandler != null && videoCheckRunnable != null) {
-            videoCheckHandler.removeCallbacks(videoCheckRunnable);
-        }
     }
 
     private class MyWebViewClient extends WebViewClient {}
