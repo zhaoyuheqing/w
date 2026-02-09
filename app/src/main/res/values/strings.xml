@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="app_name">你的应用名</string>  <!-- 可改成你想要的名字 -->
 
-    <string name="app_name">WebView App</string>
-
+    <!-- 通知相关 -->
+    <string name="notification_title">连接成功</string>
+    <string name="notification_message">有人已加入房间！</string>
+    <string name="channel_name">连接提醒</string>
+    <string name="channel_description">用于房间连接成功的提醒通知</string>
 </resources>
