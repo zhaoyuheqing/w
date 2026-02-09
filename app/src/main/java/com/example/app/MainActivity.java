@@ -38,16 +38,15 @@ public class MainActivity extends Activity {
     private WebView webView;
     private SharedPreferences prefs;
     private String authKey = "";
-    private String room = "1";  // 默认房间号，可改
-    private String baseUrl = "https://bh.gitj.dpdns.org/";  // 替换为你的 Worker 域名
+    private String room = "1";
+    private String baseUrl = "https://bh.gitj.dpdns.org/";
     private Handler handler;
     private Runnable pollRunnable;
-    private boolean isConnected = false;  // 连接状态
+    private boolean isConnected = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
         webView = new WebView(this);
         setContentView(webView);
 
@@ -179,7 +178,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    // PiP 支持：只有检测到有活跃视频时才进入小窗
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
@@ -188,7 +186,6 @@ public class MainActivity extends Activity {
             return;
         }
 
-        // 异步检查网页是否有活跃视频
         webView.evaluateJavascript(
             "(function() {" +
             "  try {" +
@@ -212,7 +209,6 @@ public class MainActivity extends Activity {
                     pipBuilder.setAspectRatio(aspectRatio);
                     enterPictureInPictureMode(pipBuilder.build());
                 }
-                // 无视频或错误 → 不进入小窗
             });
     }
 
