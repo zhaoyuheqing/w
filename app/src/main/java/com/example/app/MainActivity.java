@@ -13,6 +13,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.util.Rational;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
@@ -30,8 +31,8 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
-import android.support.v4.app.NotificationCompat;
-import android.support.v4.app.NotificationManagerCompat;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
 
 public class MainActivity extends Activity {
 
@@ -117,10 +118,13 @@ public class MainActivity extends Activity {
 
     private void startPolling() {
         handler = new Handler(Looper.getMainLooper());
-        pollRunnable = () -> {
-            pollServer();
-            if (!isConnected) {
-                handler.postDelayed(this, 3000);
+        pollRunnable = new Runnable() {
+            @Override
+            public void run() {
+                pollServer();
+                if (!isConnected) {
+                    handler.postDelayed(this, 3000);
+                }
             }
         };
         handler.post(pollRunnable);
@@ -184,31 +188,34 @@ public class MainActivity extends Activity {
 
     // 挂断检测：每10秒检查一次视频状态
     private void startVideoHangupCheck() {
-        videoCheckRunnable = () -> {
-            webView.evaluateJavascript(
-                "(function() {" +
-                "  try {" +
-                "    var videos = document.getElementsByTagName('video');" +
-                "    for (var i = 0; i < videos.length; i++) {" +
-                "      var v = videos[i];" +
-                "      if (v.srcObject && !v.paused && !v.ended && v.currentTime > 0.1) {" +
-                "        return 'active';" +
-                "      }" +
-                "    }" +
-                "    return 'inactive';" +
-                "  } catch(e) {" +
-                "    return 'error';" +
-                "  }" +
-                "})()",
-                value -> {
-                    String res = value != null ? value.replace("\"", "") : "error";
-                    if ("inactive".equals(res) || "error".equals(res)) {
-                        isConnected = false;
-                        Toast.makeText(this, "检测到通话挂断，正在重新轮询...", Toast.LENGTH_SHORT).show();
-                        startPolling();
-                    }
-                    videoCheckHandler.postDelayed(this, 10000);
-                });
+        videoCheckRunnable = new Runnable() {
+            @Override
+            public void run() {
+                webView.evaluateJavascript(
+                    "(function() {" +
+                    "  try {" +
+                    "    var videos = document.getElementsByTagName('video');" +
+                    "    for (var i = 0; i < videos.length; i++) {" +
+                    "      var v = videos[i];" +
+                    "      if (v.srcObject && !v.paused && !v.ended && v.currentTime > 0.1) {" +
+                    "        return 'active';" +
+                    "      }" +
+                    "    }" +
+                    "    return 'inactive';" +
+                    "  } catch(e) {" +
+                    "    return 'error';" +
+                    "  }" +
+                    "})()",
+                    value -> {
+                        String res = value != null ? value.replace("\"", "") : "error";
+                        if ("inactive".equals(res) || "error".equals(res)) {
+                            isConnected = false;
+                            Toast.makeText(MainActivity.this, "检测到通话挂断，正在重新轮询...", Toast.LENGTH_SHORT).show();
+                            startPolling();
+                        }
+                        videoCheckHandler.postDelayed(this, 10000);
+                    });
+            }
         };
         videoCheckHandler.postDelayed(videoCheckRunnable, 3000);
     }
