@@ -2,12 +2,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.example.app">
 
-    <!-- 原有权限全部保留 -->
+    <!-- 网络必须 -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- WebRTC / getUserMedia 核心权限 -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- 可选：帮助后台音频或前台服务 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!-- 可选：振动 -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
@@ -19,8 +25,8 @@
 
         <activity 
             android:name=".MainActivity"
-            android:supportsPictureInPicture="true"                          <!-- 新增：声明支持 PiP -->
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation">  <!-- 新增：防止配置变化重启 -->
+            android:supportsPictureInPicture="true"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation">
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
