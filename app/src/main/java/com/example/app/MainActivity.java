@@ -21,7 +21,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.EditText;
-import android.widget.Toast;  // 补全
+import android.widget.Toast;
 
 import org.json.JSONObject;
 import org.json.JSONException;
@@ -85,41 +85,130 @@ public class MainActivity extends Activity {
         }
     }
 
-    // ... createNotificationChannel, promptForKey, loadUrlWithKey, startPolling, pollServer, sendNotification, stopPolling, onBackPressed 全部保持你原始成功版本 ...
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel("connection_channel", "Connection Notifications", NotificationManager.IMPORTANCE_DEFAULT);
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            manager.createNotificationChannel(channel);
+        }
+    }
 
-    // 只新增挂断检测和条件 PiP
-    private void startVideoHangupCheck() {
-        videoCheckRunnable = new Runnable() {
-            @Override
-            public void run() {
-                webView.evaluateJavascript(
-                    "(function() {" +
-                    "  try {" +
-                    "    var videos = document.getElementsByTagName('video');" +
-                    "    for (var i = 0; i < videos.length; i++) {" +
-                    "      var v = videos[i];" +
-                    "      if (v.srcObject && !v.paused && !v.ended && v.currentTime > 0.1) {" +
-                    "        return 'active';" +
-                    "      }" +
-                    "    }" +
-                    "    return 'inactive';" +
-                    "  } catch(e) {" +
-                    "    return 'error';" +
-                    "  }" +
-                    "})()",
-                    new ValueCallback<String>() {
-                        @Override
-                        public void onReceiveValue(String result) {
-                            String res = result != null ? result.replace("\"", "") : "error";
-                            if ("inactive".equals(res) || "error".equals(res)) {
-                                isConnected = false;
-                                Toast.makeText(MainActivity.this, "检测到通话挂断，正在重新轮询...", Toast.LENGTH_SHORT).show();
-                                startPolling();
-                            }
-                            videoCheckHandler.postDelayed(this, 10000);
-                        }
-                    });
+    private void promptForKey() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Enter Auth Key");
+        final EditText input = new EditText(this);
+        builder.setView(input);
+        builder.setPositiveButton("OK", (dialog, which) -> {
+            authKey = input.getText().toString().trim();
+            prefs.edit().putString("auth_key", authKey).putBoolean("first_run", false).apply();
+            loadUrlWithKey();
+            startPolling();
+        });
+        builder.setNegativeButton("Cancel", (dialog, which) -> {
+            dialog.cancel();
+            finish();
+        });
+        builder.show();
+    }
+
+    private void loadUrlWithKey() {
+        String fullUrl = baseUrl + "?auth=" + authKey + "&room=" + room;
+        webView.loadUrl(fullUrl);
+    }
+
+    private void startPolling() {
+        handler = new Handler(Looper.getMainLooper());
+        pollRunnable = () -> {
+            pollServer();
+            if (!isConnected) {
+                handler.postDelayed(this, 3000);
             }
+        };
+        handler.post(pollRunnable);
+    }
+
+    private void pollServer() {
+        new Thread(() -> {
+            try {
+                URL url = new URL(baseUrl + "poll/" + room);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+                BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                StringBuilder content = new StringBuilder();
+                String inputLine;
+                while ((inputLine = in.readLine()) != null) {
+                    content.append(inputLine);
+                }
+                in.close();
+                String response = content.toString();
+
+                JSONObject json = new JSONObject(response);
+                if (json.has("answer") && !json.isNull("answer") || (json.has("candidates") && json.getJSONArray("candidates").length() > 0)) {
+                    isConnected = true;
+                    runOnUiThread(() -> {
+                        sendNotification("Connection Established", "Someone has connected to the room!");
+                        stopPolling();
+                        startVideoHangupCheck();
+                    });
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+    private void sendNotification(String title, String message) {
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "connection_channel")
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle(title)
+                .setContentText(message)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setAutoCancel(true);
+
+        NotificationManagerCompat.from(this).notify(1, builder.build());
+    }
+
+    private void stopPolling() {
+        if (handler != null && pollRunnable != null) {
+            handler.removeCallbacks(pollRunnable);
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (webView.canGoBack()) {
+            webView.goBack();
+        } else {
+            super.onBackPressed();
+        }
+    }
+
+    private void startVideoHangupCheck() {
+        videoCheckRunnable = () -> {
+            webView.evaluateJavascript(
+                "(function() {" +
+                "  try {" +
+                "    var videos = document.getElementsByTagName('video');" +
+                "    for (var i = 0; i < videos.length; i++) {" +
+                "      var v = videos[i];" +
+                "      if (v.srcObject && !v.paused && !v.ended && v.currentTime > 0.1) {" +
+                "        return 'active';" +
+                "      }" +
+                "    }" +
+                "    return 'inactive';" +
+                "  } catch(e) {" +
+                "    return 'error';" +
+                "  }" +
+                "})()",
+                value -> {
+                    String res = value != null ? value.replace("\"", "") : "error";
+                    if ("inactive".equals(res) || "error".equals(res)) {
+                        isConnected = false;
+                        Toast.makeText(this, "检测到通话挂断，正在重新轮询...", Toast.LENGTH_SHORT).show();
+                        startPolling();
+                    }
+                    videoCheckHandler.postDelayed(this, 10000);
+                });
         };
         videoCheckHandler.postDelayed(videoCheckRunnable, 3000);
     }
@@ -144,16 +233,12 @@ public class MainActivity extends Activity {
             "    return 'error';" +
             "  }" +
             "})()",
-            new ValueCallback<String>() {
-                @Override
-                public void onReceiveValue(String result) {
-                    String res = result != null ? result.replace("\"", "") : "error";
-                    if ("has_video".equals(res)) {
-                        PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
-                        Rational aspectRatio = new Rational(16, 9);
-                        pipBuilder.setAspectRatio(aspectRatio);
-                        enterPictureInPictureMode(pipBuilder.build());
-                    }
+            value -> {
+                String res = value != null ? value.replace("\"", "") : "error";
+                if ("has_video".equals(res)) {
+                    PictureInPictureParams.Builder builder = new PictureInPictureParams.Builder();
+                    builder.setAspectRatio(new Rational(16, 9));
+                    enterPictureInPictureMode(builder.build());
                 }
             });
     }
