@@ -4,18 +4,25 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PictureInPictureParams;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Rational;
+import android.webkit.JavascriptInterface;
+import android.webkit.PermissionRequest;
+import android.webkit.ValueCallback;
+import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.webkit.WebChromeClient;
-import android.webkit.PermissionRequest;
 import android.widget.EditText;
+import android.widget.Toast;
 
 import org.json.JSONObject;
 import org.json.JSONException;
@@ -25,15 +32,8 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
-// 使用旧的 support 包
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.app.NotificationManagerCompat;
-
-// === 只新增下面 3 行 import（用于 PiP） ===
-import android.app.PictureInPictureParams;
-import android.util.Rational;
-import android.content.res.Configuration;
-import android.os.Build;
 
 public class MainActivity extends Activity {
 
@@ -46,11 +46,15 @@ public class MainActivity extends Activity {
     private Runnable pollRunnable;
     private boolean isConnected = false;  // 连接状态
 
+    // 用于检测视频挂断的定时器
+    private Handler videoCheckHandler = new Handler(Looper.getMainLooper());
+    private Runnable videoCheckRunnable;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // 直接代码创建 WebView 全屏（避免依赖 activity_main.xml 不存在）
+        // 直接代码创建 WebView 全屏
         webView = new WebView(this);
         setContentView(webView);
 
@@ -65,7 +69,7 @@ public class MainActivity extends Activity {
 
         webView.setWebViewClient(new MyWebViewClient());
 
-        // 支持 WebRTC 权限自动授权（摄像头/麦克风）
+        // 支持 WebRTC 权限自动授权
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
@@ -75,7 +79,7 @@ public class MainActivity extends Activity {
 
         prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
 
-        // 创建通知渠道（Android 8.0+ 要求）
+        // 创建通知渠道
         createNotificationChannel();
 
         // 检查首次启动
@@ -114,7 +118,7 @@ public class MainActivity extends Activity {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 dialog.cancel();
-                finish();  // 取消关闭 App
+                finish();
             }
         });
         builder.show();
@@ -164,6 +168,7 @@ public class MainActivity extends Activity {
                             public void run() {
                                 sendNotification("Connection Established", "Someone has connected to the room!");
                                 stopPolling();
+                                startVideoHangupCheck();  // 连接成功后开始检测挂断
                             }
                         });
                     }
@@ -177,7 +182,7 @@ public class MainActivity extends Activity {
 
     private void sendNotification(String title, String message) {
         NotificationCompat.Builder builder = new NotificationCompat.Builder(MainActivity.this, "connection_channel")
-                .setSmallIcon(android.R.drawable.ic_dialog_info)  // 使用系统图标，避免自定义图标缺失
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle(title)
                 .setContentText(message)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -202,24 +207,109 @@ public class MainActivity extends Activity {
         }
     }
 
-    // === 以下只新增 PiP 相关方法，其他全部不变 ===
+    // ==================== 新增：检测视频挂断并重启轮询 ====================
+
+    private void startVideoHangupCheck() {
+        videoCheckRunnable = new Runnable() {
+            @Override
+            public void run() {
+                webView.evaluateJavascript(
+                    "(function() {" +
+                    "  try {" +
+                    "    var videos = document.getElementsByTagName('video');" +
+                    "    for (var i = 0; i < videos.length; i++) {" +
+                    "      var v = videos[i];" +
+                    "      if (v.srcObject && !v.paused && !v.ended && v.currentTime > 0.1) {" +
+                    "        return 'active';" +
+                    "      }" +
+                    "    }" +
+                    "    return 'inactive';" +
+                    "  } catch(e) {" +
+                    "    return 'error';" +
+                    "  }" +
+                    "})()",
+                    new ValueCallback<String>() {
+                        @Override
+                        public void onReceiveValue(String result) {
+                            String res = result != null ? result.replace("\"", "") : "error";
+
+                            if ("inactive".equals(res) || "error".equals(res)) {
+                                // 检测到挂断 / 无视频
+                                isConnected = false;
+                                Toast.makeText(MainActivity.this, "检测到通话挂断，正在重新轮询...", Toast.LENGTH_SHORT).show();
+                                startPolling();
+                                // 可选择停止检查，或继续监控
+                                // videoCheckHandler.removeCallbacks(this); // 如果想一次性停止，取消注释
+                            }
+                            // 继续下一次检查
+                            videoCheckHandler.postDelayed(this, 10000); // 每10秒检测一次
+                        }
+                    });
+            }
+        };
+
+        // 连接成功后延迟3秒开始第一次检测
+        videoCheckHandler.postDelayed(videoCheckRunnable, 3000);
+    }
+
+    // ==================== PiP 只在有视频时触发 ====================
 
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
-            // 视频通话常用 16:9 比例（可根据实际视频调整为 4:3 或其他）
-            Rational aspectRatio = new Rational(16, 9);
-            pipBuilder.setAspectRatio(aspectRatio);
-            enterPictureInPictureMode(pipBuilder.build());
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return;
         }
+
+        webView.evaluateJavascript(
+            "(function() {" +
+            "  try {" +
+            "    var videos = document.getElementsByTagName('video');" +
+            "    for (var i = 0; i < videos.length; i++) {" +
+            "      var v = videos[i];" +
+            "      if (v.srcObject && !v.paused && !v.ended && v.currentTime > 0.1) {" +
+            "        return 'has_video';" +
+            "      }" +
+            "    }" +
+            "    return 'no_video';" +
+            "  } catch(e) {" +
+            "    return 'error';" +
+            "  }" +
+            "})()",
+            new ValueCallback<String>() {
+                @Override
+                public void onReceiveValue(String result) {
+                    String res = result != null ? result.replace("\"", "") : "error";
+
+                    if ("has_video".equals(res)) {
+                        PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
+                        Rational aspectRatio = new Rational(16, 9);
+                        pipBuilder.setAspectRatio(aspectRatio);
+                        enterPictureInPictureMode(pipBuilder.build());
+                    }
+                    // 无视频 → 不进入小窗，正常回到桌面
+                }
+            });
     }
 
     @Override
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
-        // 此处不做额外处理，保持最小改动
-        // 如果以后需要小窗时隐藏某些 UI，可在此添加逻辑
+        // 无需额外处理
+    }
+
+    // 可选：在 Activity 销毁时清理检查器，防止内存泄漏
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (videoCheckHandler != null && videoCheckRunnable != null) {
+            videoCheckHandler.removeCallbacks(videoCheckRunnable);
+        }
+    }
+
+    // 假设原有 MyWebViewClient 类（如果没有就留空或删除）
+    private class MyWebViewClient extends WebViewClient {
+        // 如果有自定义逻辑，保留；否则可为空
     }
 }
