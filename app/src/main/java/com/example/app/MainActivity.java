@@ -4,17 +4,21 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PictureInPictureParams;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Rational;
+import android.webkit.PermissionRequest;
+import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.webkit.WebChromeClient;
-import android.webkit.PermissionRequest;
 import android.widget.EditText;
 
 import org.json.JSONObject;
@@ -25,15 +29,8 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
-// 使用旧的 support 包
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.app.NotificationManagerCompat;
-
-// === 只新增下面 3 行 import（用于 PiP） ===
-import android.app.PictureInPictureParams;
-import android.util.Rational;
-import android.content.res.Configuration;
-import android.os.Build;
 
 public class MainActivity extends Activity {
 
@@ -50,7 +47,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // 直接代码创建 WebView 全屏（避免依赖 activity_main.xml 不存在）
+        // 直接代码创建 WebView 全屏
         webView = new WebView(this);
         setContentView(webView);
 
@@ -60,25 +57,22 @@ public class MainActivity extends Activity {
         webSettings.setDatabaseEnabled(true);
         webSettings.setAllowFileAccess(true);
         webSettings.setAllowContentAccess(true);
-        webSettings.setMediaPlaybackRequiresUserGesture(false);  // 允许自动播放 WebRTC 视频
-        webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);  // 支持混合内容
+        webSettings.setMediaPlaybackRequiresUserGesture(false);
+        webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
         webView.setWebViewClient(new MyWebViewClient());
 
-        // 支持 WebRTC 权限自动授权（摄像头/麦克风）
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
-                request.grant(request.getResources());  // 自动允许
+                request.grant(request.getResources());
             }
         });
 
         prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
 
-        // 创建通知渠道（Android 8.0+ 要求）
         createNotificationChannel();
 
-        // 检查首次启动
         if (prefs.getBoolean("first_run", true)) {
             promptForKey();
         } else {
@@ -89,8 +83,8 @@ public class MainActivity extends Activity {
     }
 
     private void createNotificationChannel() {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel("connection_channel", "Connection Notifications", NotificationManager.IMPORTANCE_DEFAULT);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel("connection_channel", "连接提醒", NotificationManager.IMPORTANCE_DEFAULT);
             NotificationManager manager = getSystemService(NotificationManager.class);
             manager.createNotificationChannel(channel);
         }
@@ -98,10 +92,10 @@ public class MainActivity extends Activity {
 
     private void promptForKey() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Enter Auth Key");
+        builder.setTitle("输入认证密钥");
         final EditText input = new EditText(this);
         builder.setView(input);
-        builder.setPositiveButton("OK", new DialogInterface.OnClickListener() {
+        builder.setPositiveButton("确定", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 authKey = input.getText().toString().trim();
@@ -110,11 +104,11 @@ public class MainActivity extends Activity {
                 startPolling();
             }
         });
-        builder.setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
+        builder.setNegativeButton("取消", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 dialog.cancel();
-                finish();  // 取消关闭 App
+                finish();
             }
         });
         builder.show();
@@ -132,11 +126,11 @@ public class MainActivity extends Activity {
             public void run() {
                 pollServer();
                 if (!isConnected) {
-                    handler.postDelayed(this, 3000);  // 继续轮询
+                    handler.postDelayed(this, 3000);
                 }
             }
         };
-        handler.post(pollRunnable);  // 立即开始第一次轮询
+        handler.post(pollRunnable);
     }
 
     private void pollServer() {
@@ -162,24 +156,23 @@ public class MainActivity extends Activity {
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                sendNotification(getString(R.string.notification_title),getString(R.string.notification_message));
+                                sendNotification();
                                 stopPolling();
                             }
                         });
                     }
                 } catch (Exception e) {
-                    // 忽略错误，继续轮询
                     e.printStackTrace();
                 }
             }
         }).start();
     }
 
-    private void sendNotification(String title, String message) {
+    private void sendNotification() {
         NotificationCompat.Builder builder = new NotificationCompat.Builder(MainActivity.this, "connection_channel")
-                .setSmallIcon(android.R.drawable.ic_dialog_info)  // 使用系统图标，避免自定义图标缺失
-                .setContentTitle(title)
-                .setContentText(message)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle("连接成功")
+                .setContentText("有人已加入房间！")
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setAutoCancel(true);
 
@@ -202,15 +195,12 @@ public class MainActivity extends Activity {
         }
     }
 
-    // === 以下只新增 PiP 相关方法，其他全部不变 ===
-
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
-            // 视频通话常用 16:9 比例（可根据实际视频调整为 4:3 或其他）
-            Rational aspectRatio = new Rational(9, 16);
+            Rational aspectRatio = new Rational(16, 9);
             pipBuilder.setAspectRatio(aspectRatio);
             enterPictureInPictureMode(pipBuilder.build());
         }
@@ -219,7 +209,7 @@ public class MainActivity extends Activity {
     @Override
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
-        // 此处不做额外处理，保持最小改动
-        // 如果以后需要小窗时隐藏某些 UI，可在此添加逻辑
     }
+
+    private class MyWebViewClient extends WebViewClient {}
 }
