@@ -43,7 +43,7 @@ public class MainActivity extends Activity {
     private Runnable pollRunnable;
     private Runnable roomCheckRunnable;
     private boolean isConnected = false;
-    private boolean inCall = false;  // 是否在通话中（房间存在）
+    private boolean inCall = false;  // 通话中 = 房间存在
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -115,7 +115,7 @@ public class MainActivity extends Activity {
 
     private void startPolling() {
         pollRunnable = this::pollServer;
-        handler.post(pollRunnable);  // 立即开始3秒轮询
+        handler.post(pollRunnable);
     }
 
     private void pollServer() {
@@ -124,25 +124,30 @@ public class MainActivity extends Activity {
                 URL url = new URL(baseUrl + "poll/" + room);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("GET");
-                BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-                StringBuilder content = new StringBuilder();
-                String inputLine;
-                while ((inputLine = in.readLine()) != null) {
-                    content.append(inputLine);
-                }
-                in.close();
-                String response = content.toString();
+                conn.connect();
+                int code = conn.getResponseCode();
 
-                JSONObject json = new JSONObject(response);
-                if (json.has("answer") && !json.isNull("answer") || (json.has("candidates") && json.getJSONArray("candidates").length() > 0)) {
-                    if (!isConnected) {
-                        isConnected = true;
-                        inCall = true;
-                        runOnUiThread(() -> {
-                            sendNotification();
-                            stopPolling();  // 停止3秒轮询
-                            startRoomCheck();  // 开始10秒房间检查
-                        });
+                if (code == 200) {
+                    BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                    StringBuilder content = new StringBuilder();
+                    String inputLine;
+                    while ((inputLine = in.readLine()) != null) {
+                        content.append(inputLine);
+                    }
+                    in.close();
+                    String response = content.toString();
+
+                    JSONObject json = new JSONObject(response);
+                    if (json.has("answer") && !json.isNull("answer") || (json.has("candidates") && json.getJSONArray("candidates").length() > 0)) {
+                        if (!isConnected) {
+                            isConnected = true;
+                            inCall = true;
+                            runOnUiThread(() -> {
+                                sendNotification();
+                                stopPolling();
+                                startRoomCheck();
+                            });
+                        }
                     }
                 }
             } catch (Exception e) {
@@ -168,7 +173,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    // 每10秒检查房间是否还存在
+    // 每10秒检查房间是否还存在（挂断后服务器会删房间）
     private void startRoomCheck() {
         roomCheckRunnable = () -> {
             new Thread(() -> {
@@ -178,13 +183,13 @@ public class MainActivity extends Activity {
                     conn.setRequestMethod("GET");
                     int code = conn.getResponseCode();
 
-                    // 如果房间不存在，服务器返回非200或空数据
+                    // 房间不存在 → 非200或空响应
                     if (code != 200) {
                         runOnUiThread(() -> {
                             isConnected = false;
                             inCall = false;
-                            sendNotification("房间已结束", "通话已断开，正在重新等待...");
-                            startPolling();  // 重启3秒轮询
+                            sendNotification("通话结束", "房间已关闭，正在重新等待...");
+                            startPolling();
                         });
                     } else {
                         // 房间还在，继续检查
@@ -200,16 +205,16 @@ public class MainActivity extends Activity {
                 }
             }).start();
         };
-        handler.postDelayed(roomCheckRunnable, 10000);  // 首次延迟10秒
+        handler.postDelayed(roomCheckRunnable, 10000);
     }
 
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (inCall) {  // 只有房间存在（通话中）才进入小窗
+            if (inCall) {  // 只有房间还在（通话中）才进入小窗
                 PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
-                Rational aspectRatio = new Rational(16, 9);
+                Rational aspectRatio = new Rational(9, 16);  // 竖屏比例
                 pipBuilder.setAspectRatio(aspectRatio);
                 enterPictureInPictureMode(pipBuilder.build());
             }
