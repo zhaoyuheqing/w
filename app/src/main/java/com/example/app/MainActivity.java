@@ -43,7 +43,7 @@ public class MainActivity extends Activity {
     private Runnable pollRunnable;
     private Runnable roomCheckRunnable;
     private boolean isConnected = false;
-    private boolean inCall = false;  // 通话中 = 房间存在
+    private boolean inCall = false;  // 通话中 = 房间信息存在
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -173,7 +173,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    // 每10秒检查房间是否还存在（挂断后服务器会删房间）
+    // 每10秒检查房间是否还存在（挂断后服务器删房间）
     private void startRoomCheck() {
         roomCheckRunnable = () -> {
             new Thread(() -> {
@@ -181,9 +181,9 @@ public class MainActivity extends Activity {
                     URL url = new URL(baseUrl + "poll/" + room);
                     HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                     conn.setRequestMethod("GET");
+                    conn.connect();
                     int code = conn.getResponseCode();
 
-                    // 房间不存在 → 非200或空响应
                     if (code != 200) {
                         runOnUiThread(() -> {
                             isConnected = false;
@@ -192,7 +192,6 @@ public class MainActivity extends Activity {
                             startPolling();
                         });
                     } else {
-                        // 房间还在，继续检查
                         handler.postDelayed(roomCheckRunnable, 10000);
                     }
                 } catch (Exception e) {
@@ -208,16 +207,19 @@ public class MainActivity extends Activity {
         handler.postDelayed(roomCheckRunnable, 10000);
     }
 
+    // 小窗进入判断：只有在通话中（inCall == true）才进入小窗
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (inCall) {  // 只有房间还在（通话中）才进入小窗
+            if (inCall) {  // 判断条件：房间信息存在（通话中）才允许进入小窗
                 PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
                 Rational aspectRatio = new Rational(9, 16);  // 竖屏比例
                 pipBuilder.setAspectRatio(aspectRatio);
                 enterPictureInPictureMode(pipBuilder.build());
             }
+            // !inCall → 不进入小窗，直接回到桌面
         }
     }
 
