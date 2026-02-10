@@ -37,17 +37,18 @@ public class MainActivity extends Activity {
     private WebView webView;
     private SharedPreferences prefs;
     private String authKey = "";
-    private String room = "1";
-    private String baseUrl = "https://bh.gitj.dpdns.org/";
+    private String room = "1";  // 默认房间号，可改
+    private String baseUrl = "https://bh.gitj.dpdns.org/";  // 替换为你的 Worker 域名
     private Handler handler = new Handler(Looper.getMainLooper());
-    private Runnable pollRunnable;
-    private Runnable roomCheckRunnable;
-    private boolean isConnected = false;
-    private boolean inCall = false;  // 通话中 = 房间存在
+    private Runnable pollRunnable;      // 3秒轮询（等待连接）
+    private Runnable roomCheckRunnable; // 10秒轮询（检查房间是否还在）
+    private boolean isConnected = false; // 是否已连接成功
+    private boolean inCall = false;      // 是否在通话中（房间存在）
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
         webView = new WebView(this);
         setContentView(webView);
 
@@ -115,7 +116,7 @@ public class MainActivity extends Activity {
 
     private void startPolling() {
         pollRunnable = this::pollServer;
-        handler.post(pollRunnable);
+        handler.post(pollRunnable);  // 立即开始第一次
     }
 
     private void pollServer() {
@@ -124,30 +125,25 @@ public class MainActivity extends Activity {
                 URL url = new URL(baseUrl + "poll/" + room);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("GET");
-                conn.connect();
-                int code = conn.getResponseCode();
+                BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                StringBuilder content = new StringBuilder();
+                String inputLine;
+                while ((inputLine = in.readLine()) != null) {
+                    content.append(inputLine);
+                }
+                in.close();
+                String response = content.toString();
 
-                if (code == 200) {
-                    BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-                    StringBuilder content = new StringBuilder();
-                    String inputLine;
-                    while ((inputLine = in.readLine()) != null) {
-                        content.append(inputLine);
-                    }
-                    in.close();
-                    String response = content.toString();
-
-                    JSONObject json = new JSONObject(response);
-                    if (json.has("answer") && !json.isNull("answer") || (json.has("candidates") && json.getJSONArray("candidates").length() > 0)) {
-                        if (!isConnected) {
-                            isConnected = true;
-                            inCall = true;
-                            runOnUiThread(() -> {
-                                sendNotification();
-                                stopPolling();
-                                startRoomCheck();
-                            });
-                        }
+                JSONObject json = new JSONObject(response);
+                if (json.has("answer") && !json.isNull("answer") || (json.has("candidates") && json.getJSONArray("candidates").length() > 0)) {
+                    if (!isConnected) {
+                        isConnected = true;
+                        inCall = true;
+                        runOnUiThread(() -> {
+                            sendNotification();
+                            stopPolling();           // 停止 3 秒轮询
+                            startRoomCheck();        // 开始 10 秒房间存活检查
+                        });
                     }
                 }
             } catch (Exception e) {
@@ -173,7 +169,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    // 每10秒检查房间是否还存在
+    // 每10秒检查房间是否还存在（如果房间被删，视为挂断）
     private void startRoomCheck() {
         roomCheckRunnable = () -> {
             new Thread(() -> {
@@ -181,17 +177,16 @@ public class MainActivity extends Activity {
                     URL url = new URL(baseUrl + "poll/" + room);
                     HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                     conn.setRequestMethod("GET");
-                    conn.connect();
-                    int code = conn.getResponseCode();
+                    int responseCode = conn.getResponseCode();
 
-                    if (code != 200) {
+                    if (responseCode != 200) {  // 非 200 → 房间已删除
                         runOnUiThread(() -> {
                             isConnected = false;
                             inCall = false;
-                            sendNotification();  // 无参数，使用固定中文
-                            startPolling();
+                            startPolling();  // 重启 3 秒轮询
                         });
                     } else {
+                        // 房间还在，继续检查
                         handler.postDelayed(roomCheckRunnable, 10000);
                     }
                 } catch (Exception e) {
@@ -204,22 +199,19 @@ public class MainActivity extends Activity {
                 }
             }).start();
         };
-        handler.postDelayed(roomCheckRunnable, 10000);
+        handler.postDelayed(roomCheckRunnable, 10000);  // 首次延迟10秒
     }
 
-    // 小窗进入判断：只有通话中（inCall == true）才进入小窗
+    // 小窗：只有在通话中（房间存在）才进入
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (inCall) {  // 判断：房间信息存在（通话中）才允许进入小窗
-                PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
-                Rational aspectRatio = new Rational(9, 16);  // 竖屏比例
-                pipBuilder.setAspectRatio(aspectRatio);
-                enterPictureInPictureMode(pipBuilder.build());
-            }
-            // !inCall → 不进入小窗，直接回到桌面
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && inCall) {
+            PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
+            Rational aspectRatio = new Rational(16, 9);
+            pipBuilder.setAspectRatio(aspectRatio);
+            enterPictureInPictureMode(pipBuilder.build());
         }
     }
 
