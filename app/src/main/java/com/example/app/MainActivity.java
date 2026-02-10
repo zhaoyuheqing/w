@@ -37,17 +37,17 @@ public class MainActivity extends Activity {
     private WebView webView;
     private SharedPreferences prefs;
     private String authKey = "";
-    private String room = "1";  // 默认房间号，可改
-    private String baseUrl = "https://bh.gitj.dpdns.org/";  // 替换为你的 Worker 域名
-    private Handler handler;
+    private String room = "1";
+    private String baseUrl = "https://bh.gitj.dpdns.org/";
+    private Handler handler = new Handler(Looper.getMainLooper());
     private Runnable pollRunnable;
-    private boolean isConnected = false;  // 连接状态
+    private Runnable roomCheckRunnable;
+    private boolean isConnected = false;
+    private boolean inCall = false;  // 是否在通话中（房间存在）
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        // 直接代码创建 WebView 全屏
         webView = new WebView(this);
         setContentView(webView);
 
@@ -95,21 +95,15 @@ public class MainActivity extends Activity {
         builder.setTitle("输入认证密钥");
         final EditText input = new EditText(this);
         builder.setView(input);
-        builder.setPositiveButton("确定", new DialogInterface.OnClickListener() {
-            @Override
-            public void onClick(DialogInterface dialog, int which) {
-                authKey = input.getText().toString().trim();
-                prefs.edit().putString("auth_key", authKey).putBoolean("first_run", false).apply();
-                loadUrlWithKey();
-                startPolling();
-            }
+        builder.setPositiveButton("确定", (dialog, which) -> {
+            authKey = input.getText().toString().trim();
+            prefs.edit().putString("auth_key", authKey).putBoolean("first_run", false).apply();
+            loadUrlWithKey();
+            startPolling();
         });
-        builder.setNegativeButton("取消", new DialogInterface.OnClickListener() {
-            @Override
-            public void onClick(DialogInterface dialog, int which) {
-                dialog.cancel();
-                finish();
-            }
+        builder.setNegativeButton("取消", (dialog, which) -> {
+            dialog.cancel();
+            finish();
         });
         builder.show();
     }
@@ -120,70 +114,111 @@ public class MainActivity extends Activity {
     }
 
     private void startPolling() {
-        handler = new Handler(Looper.getMainLooper());
-        pollRunnable = new Runnable() {
-            @Override
-            public void run() {
-                pollServer();
-                if (!isConnected) {
-                    handler.postDelayed(this, 3000);
-                }
-            }
-        };
-        handler.post(pollRunnable);
+        pollRunnable = this::pollServer;
+        handler.post(pollRunnable);  // 立即开始3秒轮询
     }
 
     private void pollServer() {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    URL url = new URL(baseUrl + "poll/" + room);
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setRequestMethod("GET");
-                    BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-                    StringBuilder content = new StringBuilder();
-                    String inputLine;
-                    while ((inputLine = in.readLine()) != null) {
-                        content.append(inputLine);
-                    }
-                    in.close();
-                    String response = content.toString();
+        new Thread(() -> {
+            try {
+                URL url = new URL(baseUrl + "poll/" + room);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+                BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                StringBuilder content = new StringBuilder();
+                String inputLine;
+                while ((inputLine = in.readLine()) != null) {
+                    content.append(inputLine);
+                }
+                in.close();
+                String response = content.toString();
 
-                    JSONObject json = new JSONObject(response);
-                    if (json.has("answer") && !json.isNull("answer") || (json.has("candidates") && json.getJSONArray("candidates").length() > 0)) {
+                JSONObject json = new JSONObject(response);
+                if (json.has("answer") && !json.isNull("answer") || (json.has("candidates") && json.getJSONArray("candidates").length() > 0)) {
+                    if (!isConnected) {
                         isConnected = true;
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                sendNotification();
-                                stopPolling();
-                            }
+                        inCall = true;
+                        runOnUiThread(() -> {
+                            sendNotification();
+                            stopPolling();  // 停止3秒轮询
+                            startRoomCheck();  // 开始10秒房间检查
                         });
                     }
-                } catch (Exception e) {
-                    e.printStackTrace();
                 }
+            } catch (Exception e) {
+                e.printStackTrace();
             }
         }).start();
     }
 
     private void sendNotification() {
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(MainActivity.this, "connection_channel")
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "connection_channel")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle("连接成功")
                 .setContentText("有人已加入房间！")
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setAutoCancel(true);
 
-        NotificationManagerCompat notificationManager = NotificationManagerCompat.from(MainActivity.this);
-        notificationManager.notify(1, builder.build());
+        NotificationManagerCompat.from(this).notify(1, builder.build());
     }
 
     private void stopPolling() {
-        if (handler != null && pollRunnable != null) {
+        if (pollRunnable != null) {
             handler.removeCallbacks(pollRunnable);
         }
+    }
+
+    // 每10秒检查房间是否还存在
+    private void startRoomCheck() {
+        roomCheckRunnable = () -> {
+            new Thread(() -> {
+                try {
+                    URL url = new URL(baseUrl + "poll/" + room);
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("GET");
+                    int code = conn.getResponseCode();
+
+                    // 如果房间不存在，服务器返回非200或空数据
+                    if (code != 200) {
+                        runOnUiThread(() -> {
+                            isConnected = false;
+                            inCall = false;
+                            sendNotification("房间已结束", "通话已断开，正在重新等待...");
+                            startPolling();  // 重启3秒轮询
+                        });
+                    } else {
+                        // 房间还在，继续检查
+                        handler.postDelayed(roomCheckRunnable, 10000);
+                    }
+                } catch (Exception e) {
+                    runOnUiThread(() -> {
+                        isConnected = false;
+                        inCall = false;
+                        startPolling();
+                    });
+                    e.printStackTrace();
+                }
+            }).start();
+        };
+        handler.postDelayed(roomCheckRunnable, 10000);  // 首次延迟10秒
+    }
+
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (inCall) {  // 只有房间存在（通话中）才进入小窗
+                PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
+                Rational aspectRatio = new Rational(16, 9);
+                pipBuilder.setAspectRatio(aspectRatio);
+                enterPictureInPictureMode(pipBuilder.build());
+            }
+        }
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, Configuration newConfig) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
     }
 
     @Override
@@ -196,19 +231,12 @@ public class MainActivity extends Activity {
     }
 
     @Override
-    protected void onUserLeaveHint() {
-        super.onUserLeaveHint();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
-            Rational aspectRatio = new Rational(16, 9);
-            pipBuilder.setAspectRatio(aspectRatio);
-            enterPictureInPictureMode(pipBuilder.build());
+    protected void onDestroy() {
+        super.onDestroy();
+        if (handler != null) {
+            if (pollRunnable != null) handler.removeCallbacks(pollRunnable);
+            if (roomCheckRunnable != null) handler.removeCallbacks(roomCheckRunnable);
         }
-    }
-
-    @Override
-    public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, Configuration newConfig) {
-        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
     }
 
     private class MyWebViewClient extends WebViewClient {}
