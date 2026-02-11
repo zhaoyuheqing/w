@@ -20,6 +20,11 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.webkit.PermissionRequest;
+import android.webkit.WebChromeClient;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 
 import org.json.JSONObject;
 import org.json.JSONException;
@@ -46,12 +51,12 @@ public class MainActivity extends Activity {
 
     // 日志显示区域
     private TextView logTextView;
+    private ScrollView scrollView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // 使用 LinearLayout 作为根布局，便于添加日志区域
         LinearLayout rootLayout = new LinearLayout(this);
         rootLayout.setOrientation(LinearLayout.VERTICAL);
         rootLayout.setLayoutParams(new LinearLayout.LayoutParams(
@@ -62,12 +67,11 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams webParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0);
-        webParams.weight = 1;  // WebView 占大部分空间
+        webParams.weight = 1;
         webView.setLayoutParams(webParams);
         rootLayout.addView(webView);
 
-        // 添加日志区域（可滚动 + 可复制）
-        ScrollView scrollView = new ScrollView(this);
+        scrollView = new ScrollView(this);
         scrollView.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -76,7 +80,7 @@ public class MainActivity extends Activity {
         logTextView.setTextSize(14);
         logTextView.setTextColor(0xFF333333);
         logTextView.setBackgroundColor(0xFFF0F0F0);
-        logTextView.setTextIsSelectable(true);  // 支持复制
+        logTextView.setTextIsSelectable(true);  // 支持长按复制
         scrollView.addView(logTextView);
         rootLayout.addView(scrollView);
 
@@ -118,7 +122,7 @@ public class MainActivity extends Activity {
             String current = logTextView.getText().toString();
             logTextView.setText(current + "\n" + message);
             // 自动滚动到底部
-            logTextView.post(() -> logTextView.setSelection(logTextView.getText().length()));
+            scrollView.post(() -> scrollView.fullScroll(View.FOCUS_DOWN));
         });
     }
 
@@ -167,6 +171,8 @@ public class MainActivity extends Activity {
                 conn.setRequestMethod("GET");
                 int responseCode = conn.getResponseCode();
 
+                log("轮询请求发送：HTTP " + responseCode);
+
                 if (responseCode == 200) {
                     BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
                     StringBuilder content = new StringBuilder();
@@ -177,6 +183,8 @@ public class MainActivity extends Activity {
                     in.close();
                     String response = content.toString();
 
+                    log("轮询返回：" + response);
+
                     JSONObject json = new JSONObject(response);
                     boolean roomExists = json.has("answer") || (json.has("candidates") && json.getJSONArray("candidates").length() > 0);
 
@@ -186,7 +194,7 @@ public class MainActivity extends Activity {
                                 isConnected = true;
                                 inCall = true;
                                 sendNotification();
-                                log("连接成功！进入通话状态，切换到10秒房间检查");
+                                log("连接成功！进入通话状态，继续10秒房间检查");
                             } else {
                                 log("10秒检查：房间仍然存在 → 保持通话状态");
                             }
@@ -206,6 +214,7 @@ public class MainActivity extends Activity {
                         if (inCall) {
                             inCall = false;
                             isConnected = false;
+                            log("房间检查失败，重启3秒轮询");
                         }
                     });
                 }
@@ -215,7 +224,9 @@ public class MainActivity extends Activity {
             }
 
             // 继续下一次轮询（间隔根据状态动态调整）
-            handler.postDelayed(pollRunnable, inCall ? 10000 : 3000);
+            long delay = inCall ? 10000 : 3000;
+            log("下次轮询将在 " + (delay / 1000) + " 秒后");
+            handler.postDelayed(pollRunnable, delay);
         }).start();
     }
 
