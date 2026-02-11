@@ -5,6 +5,8 @@ import android.app.AlertDialog;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PictureInPictureParams;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.SharedPreferences;
@@ -16,6 +18,7 @@ import android.os.Looper;
 import android.util.Rational;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -49,20 +52,24 @@ public class MainActivity extends Activity {
     private boolean isConnected = false;
     private boolean inCall = false;
 
-    // 日志显示区域
+    // 日志区域组件
     private TextView logTextView;
-    private ScrollView scrollView;
+    private ScrollView logScrollView;
+    private LinearLayout logLayout;
+    private boolean logVisible = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // 根布局：垂直 LinearLayout
         LinearLayout rootLayout = new LinearLayout(this);
         rootLayout.setOrientation(LinearLayout.VERTICAL);
         rootLayout.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.MATCH_PARENT));
 
+        // WebView 占上半屏（权重 1）
         webView = new WebView(this);
         LinearLayout.LayoutParams webParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -71,21 +78,45 @@ public class MainActivity extends Activity {
         webView.setLayoutParams(webParams);
         rootLayout.addView(webView);
 
-        scrollView = new ScrollView(this);
-        scrollView.setLayoutParams(new LinearLayout.LayoutParams(
+        // 日志区域占下半屏（固定高度一半）
+        logLayout = new LinearLayout(this);
+        logLayout.setOrientation(LinearLayout.VERTICAL);
+        logLayout.setBackgroundColor(0xFFF0F0F0);
+        LinearLayout.LayoutParams logParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
+                LinearLayout.LayoutParams.MATCH_PARENT / 2);
+        logLayout.setLayoutParams(logParams);
+        logLayout.setVisibility(View.GONE); // 默认隐藏
+
+        // 复制按钮
+        Button copyButton = new Button(this);
+        copyButton.setText("复制日志");
+        copyButton.setOnClickListener(v -> {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            ClipData clip = ClipData.newPlainText("App Log", logTextView.getText());
+            clipboard.setPrimaryClip(clip);
+            Toast.makeText(this, "日志已复制到剪贴板", Toast.LENGTH_SHORT).show();
+        });
+        logLayout.addView(copyButton);
+
+        // ScrollView + TextView 显示日志
+        logScrollView = new ScrollView(this);
         logTextView = new TextView(this);
         logTextView.setPadding(16, 16, 16, 16);
         logTextView.setTextSize(14);
         logTextView.setTextColor(0xFF333333);
-        logTextView.setBackgroundColor(0xFFF0F0F0);
-        logTextView.setTextIsSelectable(true);  // 支持长按复制
-        scrollView.addView(logTextView);
-        rootLayout.addView(scrollView);
+        logTextView.setTextIsSelectable(true);
+        logScrollView.addView(logTextView);
+        logLayout.addView(logScrollView, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f));
+
+        rootLayout.addView(logLayout);
 
         setContentView(rootLayout);
 
+        // WebView 设置
         WebSettings webSettings = webView.getSettings();
         webSettings.setJavaScriptEnabled(true);
         webSettings.setDomStorageEnabled(true);
@@ -115,6 +146,23 @@ public class MainActivity extends Activity {
             loadUrlWithKey();
             startPolling();
         }
+
+        // 右下角浮动按钮：切换日志显示
+        Button toggleLogButton = new Button(this);
+        toggleLogButton.setText("日志");
+        toggleLogButton.setBackgroundColor(0x80000000);
+        toggleLogButton.setTextColor(0xFFFFFFFF);
+        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        buttonParams.gravity = Gravity.BOTTOM | Gravity.END;
+        buttonParams.setMargins(0, 0, 16, 16);
+        toggleLogButton.setLayoutParams(buttonParams);
+        toggleLogButton.setOnClickListener(v -> {
+            logVisible = !logVisible;
+            logLayout.setVisibility(logVisible ? View.VISIBLE : View.GONE);
+        });
+        rootLayout.addView(toggleLogButton);
     }
 
     private void log(String message) {
@@ -122,7 +170,7 @@ public class MainActivity extends Activity {
             String current = logTextView.getText().toString();
             logTextView.setText(current + "\n" + message);
             // 自动滚动到底部
-            scrollView.post(() -> scrollView.fullScroll(View.FOCUS_DOWN));
+            logScrollView.post(() -> logScrollView.fullScroll(View.FOCUS_DOWN));
         });
     }
 
@@ -155,6 +203,7 @@ public class MainActivity extends Activity {
     private void loadUrlWithKey() {
         String fullUrl = baseUrl + "?auth=" + authKey + "&room=" + room;
         webView.loadUrl(fullUrl);
+        log("加载网址：" + fullUrl);
     }
 
     private void startPolling() {
@@ -169,11 +218,10 @@ public class MainActivity extends Activity {
                 URL url = new URL(baseUrl + "poll/" + room);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("GET");
-                int responseCode = conn.getResponseCode();
+                int code = conn.getResponseCode();
+                log("轮询请求发送：HTTP " + code);
 
-                log("轮询请求发送：HTTP " + responseCode);
-
-                if (responseCode == 200) {
+                if (code == 200) {
                     BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
                     StringBuilder content = new StringBuilder();
                     String inputLine;
@@ -182,51 +230,50 @@ public class MainActivity extends Activity {
                     }
                     in.close();
                     String response = content.toString();
-
                     log("轮询返回：" + response);
 
                     JSONObject json = new JSONObject(response);
-                    boolean roomExists = json.has("answer") || (json.has("candidates") && json.getJSONArray("candidates").length() > 0);
+                    boolean roomActive = json.has("answer") || (json.has("candidates") && json.getJSONArray("candidates").length() > 0);
 
                     runOnUiThread(() -> {
-                        if (roomExists) {
+                        if (roomActive) {
                             if (!isConnected) {
                                 isConnected = true;
                                 inCall = true;
                                 sendNotification();
-                                log("连接成功！进入通话状态，继续10秒房间检查");
+                                log("连接成功！进入通话状态");
                             } else {
-                                log("10秒检查：房间仍然存在 → 保持通话状态");
+                                log("房间仍然存在 → 保持通话状态");
                             }
                         } else {
                             if (isConnected || inCall) {
                                 isConnected = false;
                                 inCall = false;
-                                log("房间已删除 → 通话结束，重启3秒轮询");
+                                log("房间已删除 → 通话结束，继续轮询等待");
                             } else {
-                                log("3秒轮询：房间不存在");
+                                log("房间不存在");
                             }
                         }
                     });
                 } else {
+                    log("轮询失败，HTTP 状态码：" + code);
                     runOnUiThread(() -> {
-                        log("轮询失败，HTTP 状态码：" + responseCode);
-                        if (inCall) {
-                            inCall = false;
-                            isConnected = false;
-                            log("房间检查失败，重启3秒轮询");
-                        }
+                        isConnected = false;
+                        inCall = false;
                     });
                 }
             } catch (Exception e) {
-                runOnUiThread(() -> log("轮询异常：" + e.getMessage()));
+                log("轮询异常：" + e.getMessage());
+                runOnUiThread(() -> {
+                    isConnected = false;
+                    inCall = false;
+                });
                 e.printStackTrace();
             }
 
-            // 继续下一次轮询（间隔根据状态动态调整）
-            long delay = inCall ? 10000 : 3000;
-            log("下次轮询将在 " + (delay / 1000) + " 秒后");
-            handler.postDelayed(pollRunnable, delay);
+            // 继续下一次轮询（间隔固定 10 秒）
+            handler.postDelayed(pollRunnable, 10000);
+            log("下次轮询将在 10 秒后");
         }).start();
     }
 
@@ -239,6 +286,7 @@ public class MainActivity extends Activity {
                 .setAutoCancel(true);
 
         NotificationManagerCompat.from(this).notify(1, builder.build());
+        log("已发送通知：连接成功");
     }
 
     @Override
@@ -246,11 +294,11 @@ public class MainActivity extends Activity {
         super.onUserLeaveHint();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             if (inCall) {
+                log("切出 App → 进入小窗（通话中）");
                 PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
                 Rational aspectRatio = new Rational(16, 9);
                 pipBuilder.setAspectRatio(aspectRatio);
                 enterPictureInPictureMode(pipBuilder.build());
-                log("切出 App → 进入小窗（通话中）");
             } else {
                 log("切出 App → 不进入小窗（无通话）");
             }
