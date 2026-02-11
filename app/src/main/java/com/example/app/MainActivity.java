@@ -23,6 +23,7 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
@@ -78,7 +79,7 @@ public class MainActivity extends Activity {
         webView.setLayoutParams(webParams);
         rootLayout.addView(webView);
 
-        // 日志区域占下半屏（固定高度一半）
+        // 日志区域：下半屏（固定高度一半）
         logLayout = new LinearLayout(this);
         logLayout.setOrientation(LinearLayout.VERTICAL);
         logLayout.setBackgroundColor(0xFFF0F0F0);
@@ -271,7 +272,7 @@ public class MainActivity extends Activity {
                 e.printStackTrace();
             }
 
-            // 继续下一次轮询（间隔固定 10 秒）
+            // 继续下一次轮询（固定 10 秒）
             handler.postDelayed(pollRunnable, 10000);
             log("下次轮询将在 10 秒后");
         }).start();
