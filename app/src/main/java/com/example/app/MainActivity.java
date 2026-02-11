@@ -5,8 +5,6 @@ import android.app.AlertDialog;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PictureInPictureParams;
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.SharedPreferences;
@@ -16,20 +14,12 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Rational;
-import android.view.Gravity;
-import android.view.View;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.FrameLayout;
-import android.widget.LinearLayout;
-import android.widget.ScrollView;
-import android.widget.TextView;
-import android.widget.Toast;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.EditText;
 
 import org.json.JSONObject;
 import org.json.JSONException;
@@ -54,58 +44,12 @@ public class MainActivity extends Activity {
     private boolean isConnected = false;
     private boolean inCall = false;
 
-    // 日志区域
-    private TextView logTextView;
-    private ScrollView logScrollView;
-    private LinearLayout logLayout;
-    private boolean logVisible = true;  // 默认显示
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        FrameLayout rootLayout = new FrameLayout(this);
-
         webView = new WebView(this);
-        webView.setLayoutParams(new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT));
-        rootLayout.addView(webView);
-
-        logLayout = new LinearLayout(this);
-        logLayout.setOrientation(LinearLayout.VERTICAL);
-        logLayout.setBackgroundColor(0xFFF0F0F0);
-        FrameLayout.LayoutParams logParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT / 2,
-                Gravity.BOTTOM);
-        logLayout.setLayoutParams(logParams);
-
-        Button copyButton = new Button(this);
-        copyButton.setText("复制日志");
-        copyButton.setOnClickListener(v -> {
-            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            ClipData clip = ClipData.newPlainText("App Log", logTextView.getText());
-            clipboard.setPrimaryClip(clip);
-            Toast.makeText(this, "日志已复制", Toast.LENGTH_SHORT).show();
-        });
-        logLayout.addView(copyButton);
-
-        logScrollView = new ScrollView(this);
-        logTextView = new TextView(this);
-        logTextView.setPadding(16, 16, 16, 16);
-        logTextView.setTextSize(14);
-        logTextView.setTextColor(0xFF333333);
-        logTextView.setTextIsSelectable(true);
-        logScrollView.addView(logTextView);
-        logLayout.addView(logScrollView, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f));
-
-        rootLayout.addView(logLayout);
-
-        setContentView(rootLayout);
+        setContentView(webView);
 
         WebSettings webSettings = webView.getSettings();
         webSettings.setJavaScriptEnabled(true);
@@ -136,32 +80,6 @@ public class MainActivity extends Activity {
             loadUrlWithKey();
             startPolling();
         }
-
-        // 日志切换按钮
-        Button toggleLogButton = new Button(this);
-        toggleLogButton.setText("日志");
-        toggleLogButton.setBackgroundColor(0x80000000);
-        toggleLogButton.setTextColor(0xFFFFFFFF);
-        FrameLayout.LayoutParams buttonParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM | Gravity.END);
-        buttonParams.setMargins(0, 0, 16, 16);
-        toggleLogButton.setLayoutParams(buttonParams);
-        toggleLogButton.setOnClickListener(v -> {
-            logVisible = !logVisible;
-            logLayout.setVisibility(logVisible ? View.VISIBLE : View.GONE);
-            Toast.makeText(this, logVisible ? "日志面板展开" : "日志面板隐藏", Toast.LENGTH_SHORT).show();
-        });
-        rootLayout.addView(toggleLogButton);
-    }
-
-    private void log(String message) {
-        runOnUiThread(() -> {
-            String current = logTextView.getText().toString();
-            logTextView.setText(current + "\n" + message);
-            logScrollView.post(() -> logScrollView.fullScroll(View.FOCUS_DOWN));
-        });
     }
 
     private void createNotificationChannel() {
@@ -193,13 +111,11 @@ public class MainActivity extends Activity {
     private void loadUrlWithKey() {
         String fullUrl = baseUrl + "?auth=" + authKey + "&room=" + room;
         webView.loadUrl(fullUrl);
-        log("加载网址：" + fullUrl);
     }
 
     private void startPolling() {
         pollRunnable = this::pollServer;
         handler.post(pollRunnable);
-        log("启动 3秒轮询：等待连接");
     }
 
     private void pollServer() {
@@ -209,7 +125,6 @@ public class MainActivity extends Activity {
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("GET");
                 int code = conn.getResponseCode();
-                log("轮询请求发送：HTTP " + code);
 
                 if (code == 200) {
                     BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
@@ -220,46 +135,31 @@ public class MainActivity extends Activity {
                     }
                     in.close();
                     String response = content.toString();
-                    log("轮询返回：" + response);
 
                     JSONObject json = new JSONObject(response);
-                    // 严格判断：必须有 answer 非空才算连接成功
-                    boolean hasAnswer = json.has("answer") && !json.isNull("answer");
-                    boolean hasCandidates = json.has("candidates") && json.getJSONArray("candidates").length() > 0;
-
-                    boolean roomConnected = hasAnswer;  // 只看 answer 是否存在（最可靠）
+                    boolean roomActive = json.has("answer") || (json.has("candidates") && json.getJSONArray("candidates").length() > 0);
 
                     runOnUiThread(() -> {
-                        if (roomConnected) {
+                        if (roomActive) {
                             if (!isConnected) {
                                 isConnected = true;
                                 inCall = true;
                                 sendNotification();
-                                log("真正连接成功！（有 answer）进入通话状态");
-                            } else {
-                                log("房间活跃（有 answer）");
                             }
-                        } else if (hasCandidates) {
-                            log("房间存在 offer + candidates，但无 answer → 等待对方应答");
                         } else {
                             if (isConnected || inCall) {
                                 isConnected = false;
                                 inCall = false;
-                                log("房间无 answer 或已删除 → 通话断开，继续轮询");
-                            } else {
-                                log("无任何房间信息");
                             }
                         }
                     });
                 } else {
-                    log("轮询失败，HTTP " + code);
                     runOnUiThread(() -> {
                         isConnected = false;
                         inCall = false;
                     });
                 }
             } catch (Exception e) {
-                log("轮询异常：" + e.getMessage());
                 runOnUiThread(() -> {
                     isConnected = false;
                     inCall = false;
@@ -267,9 +167,8 @@ public class MainActivity extends Activity {
                 e.printStackTrace();
             }
 
-            long delay = inCall ? 10000 : 3000;
-            log("下次轮询将在 " + (delay / 1000) + " 秒后");
-            handler.postDelayed(pollRunnable, delay);
+            // 继续下一次轮询（固定 10 秒）
+            handler.postDelayed(pollRunnable, 10000);
         }).start();
     }
 
@@ -282,29 +181,22 @@ public class MainActivity extends Activity {
                 .setAutoCancel(true);
 
         NotificationManagerCompat.from(this).notify(1, builder.build());
-        log("已发送通知：连接成功");
     }
 
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (inCall) {
-                log("切出 App → 进入小窗（通话中）");
-                PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
-                Rational aspectRatio = new Rational(16, 9);
-                pipBuilder.setAspectRatio(aspectRatio);
-                enterPictureInPictureMode(pipBuilder.build());
-            } else {
-                log("切出 App → 不进入小窗（无通话）");
-            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && inCall) {
+            PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
+            Rational aspectRatio = new Rational(16, 9);
+            pipBuilder.setAspectRatio(aspectRatio);
+            enterPictureInPictureMode(pipBuilder.build());
         }
     }
 
     @Override
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
-        log("小窗状态变化：" + (isInPictureInPictureMode ? "进入小窗" : "退出小窗"));
     }
 
     @Override
