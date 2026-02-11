@@ -14,12 +14,12 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Rational;
-import android.webkit.PermissionRequest;
-import android.webkit.WebChromeClient;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
+import android.view.Gravity;
+import android.view.View;
 import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
 
 import org.json.JSONObject;
 import org.json.JSONException;
@@ -37,19 +37,50 @@ public class MainActivity extends Activity {
     private WebView webView;
     private SharedPreferences prefs;
     private String authKey = "";
-    private String room = "1";  // 默认房间号，可改
-    private String baseUrl = "https://bh.gitj.dpdns.org/";  // 替换为你的 Worker 域名
+    private String room = "1";
+    private String baseUrl = "https://bh.gitj.dpdns.org/";
     private Handler handler = new Handler(Looper.getMainLooper());
     private Runnable pollRunnable;
-    private boolean isConnected = false;  // 是否已连接成功
-    private boolean inCall = false;       // 房间是否还存在（通话中）
+    private boolean isConnected = false;
+    private boolean inCall = false;
+
+    // 日志显示区域
+    private TextView logTextView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // 使用 LinearLayout 作为根布局，便于添加日志区域
+        LinearLayout rootLayout = new LinearLayout(this);
+        rootLayout.setOrientation(LinearLayout.VERTICAL);
+        rootLayout.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.MATCH_PARENT));
+
         webView = new WebView(this);
-        setContentView(webView);
+        LinearLayout.LayoutParams webParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0);
+        webParams.weight = 1;  // WebView 占大部分空间
+        webView.setLayoutParams(webParams);
+        rootLayout.addView(webView);
+
+        // 添加日志区域（可滚动 + 可复制）
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        logTextView = new TextView(this);
+        logTextView.setPadding(16, 16, 16, 16);
+        logTextView.setTextSize(14);
+        logTextView.setTextColor(0xFF333333);
+        logTextView.setBackgroundColor(0xFFF0F0F0);
+        logTextView.setTextIsSelectable(true);  // 支持复制
+        scrollView.addView(logTextView);
+        rootLayout.addView(scrollView);
+
+        setContentView(rootLayout);
 
         WebSettings webSettings = webView.getSettings();
         webSettings.setJavaScriptEnabled(true);
@@ -80,6 +111,15 @@ public class MainActivity extends Activity {
             loadUrlWithKey();
             startPolling();
         }
+    }
+
+    private void log(String message) {
+        runOnUiThread(() -> {
+            String current = logTextView.getText().toString();
+            logTextView.setText(current + "\n" + message);
+            // 自动滚动到底部
+            logTextView.post(() -> logTextView.setSelection(logTextView.getText().length()));
+        });
     }
 
     private void createNotificationChannel() {
@@ -115,7 +155,8 @@ public class MainActivity extends Activity {
 
     private void startPolling() {
         pollRunnable = this::pollServer;
-        handler.post(pollRunnable);  // 立即开始
+        handler.post(pollRunnable);
+        log("启动 3秒轮询：等待连接");
     }
 
     private void pollServer() {
@@ -124,45 +165,57 @@ public class MainActivity extends Activity {
                 URL url = new URL(baseUrl + "poll/" + room);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("GET");
-                BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-                StringBuilder content = new StringBuilder();
-                String inputLine;
-                while ((inputLine = in.readLine()) != null) {
-                    content.append(inputLine);
-                }
-                in.close();
-                String response = content.toString();
+                int responseCode = conn.getResponseCode();
 
-                JSONObject json = new JSONObject(response);
-
-                // 判断房间是否还存在
-                boolean roomExists = json.has("answer") || (json.has("candidates") && json.getJSONArray("candidates").length() > 0);
-
-                if (roomExists) {
-                    if (!isConnected) {
-                        isConnected = true;
-                        inCall = true;
-                        runOnUiThread(this::sendNotification);
+                if (responseCode == 200) {
+                    BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                    StringBuilder content = new StringBuilder();
+                    String inputLine;
+                    while ((inputLine = in.readLine()) != null) {
+                        content.append(inputLine);
                     }
+                    in.close();
+                    String response = content.toString();
+
+                    JSONObject json = new JSONObject(response);
+                    boolean roomExists = json.has("answer") || (json.has("candidates") && json.getJSONArray("candidates").length() > 0);
+
+                    runOnUiThread(() -> {
+                        if (roomExists) {
+                            if (!isConnected) {
+                                isConnected = true;
+                                inCall = true;
+                                sendNotification();
+                                log("连接成功！进入通话状态，切换到10秒房间检查");
+                            } else {
+                                log("10秒检查：房间仍然存在 → 保持通话状态");
+                            }
+                        } else {
+                            if (isConnected || inCall) {
+                                isConnected = false;
+                                inCall = false;
+                                log("房间已删除 → 通话结束，重启3秒轮询");
+                            } else {
+                                log("3秒轮询：房间不存在");
+                            }
+                        }
+                    });
                 } else {
-                    // 房间不存在（挂断）
-                    if (isConnected || inCall) {
-                        isConnected = false;
-                        inCall = false;
-                        runOnUiThread(() -> {
-                            // 可选：这里加 Toast 或其他提示
-                            // Toast.makeText(this, "通话已结束", Toast.LENGTH_SHORT).show();
-                        });
-                    }
+                    runOnUiThread(() -> {
+                        log("轮询失败，HTTP 状态码：" + responseCode);
+                        if (inCall) {
+                            inCall = false;
+                            isConnected = false;
+                        }
+                    });
                 }
             } catch (Exception e) {
+                runOnUiThread(() -> log("轮询异常：" + e.getMessage()));
                 e.printStackTrace();
-                // 网络异常 → 认为房间可能已删
-                runOnUiThread(() -> {
-                    isConnected = false;
-                    inCall = false;
-                });
             }
+
+            // 继续下一次轮询（间隔根据状态动态调整）
+            handler.postDelayed(pollRunnable, inCall ? 10000 : 3000);
         }).start();
     }
 
@@ -180,17 +233,23 @@ public class MainActivity extends Activity {
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && inCall) {
-            PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
-            Rational aspectRatio = new Rational(16, 9);
-            pipBuilder.setAspectRatio(aspectRatio);
-            enterPictureInPictureMode(pipBuilder.build());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (inCall) {
+                PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
+                Rational aspectRatio = new Rational(16, 9);
+                pipBuilder.setAspectRatio(aspectRatio);
+                enterPictureInPictureMode(pipBuilder.build());
+                log("切出 App → 进入小窗（通话中）");
+            } else {
+                log("切出 App → 不进入小窗（无通话）");
+            }
         }
     }
 
     @Override
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
+        log("小窗状态变化：" + (isInPictureInPictureMode ? "进入小窗" : "退出小窗"));
     }
 
     @Override
