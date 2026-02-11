@@ -136,8 +136,9 @@ public class MainActivity extends Activity {
                     String response = content.toString();
 
                     JSONObject json = new JSONObject(response);
-                    boolean roomActive = json.has("answer") && !json.isNull("answer") ||
-                                         (json.has("candidates") && json.getJSONArray("candidates").length() > 0);
+
+                    // 严格判断：只有有 answer 才算连接成功
+                    boolean roomActive = json.has("answer") && !json.isNull("answer");
 
                     runOnUiThread(() -> {
                         if (roomActive) {
@@ -157,8 +158,9 @@ public class MainActivity extends Activity {
                 e.printStackTrace();
             }
 
-            // 继续下一次轮询（固定 10 秒）
-            handler.postDelayed(pollRunnable, 10000);
+            // 动态间隔：连接成功后 10 秒一次，否则 3 秒一次
+            long delay = isConnected ? 10000 : 3000;
+            handler.postDelayed(pollRunnable, delay);
         }).start();
     }
 
@@ -178,7 +180,7 @@ public class MainActivity extends Activity {
         super.onUserLeaveHint();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isConnected) {
             PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
-            Rational aspectRatio = new Rational(16, 9);
+            Rational aspectRatio = new Rational(9, 16);  // 改为竖屏 9:16
             pipBuilder.setAspectRatio(aspectRatio);
             enterPictureInPictureMode(pipBuilder.build());
         }
