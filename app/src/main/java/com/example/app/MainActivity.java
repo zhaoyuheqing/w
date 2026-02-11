@@ -40,10 +40,9 @@ public class MainActivity extends Activity {
     private String room = "1";  // 默认房间号，可改
     private String baseUrl = "https://bh.gitj.dpdns.org/";  // 替换为你的 Worker 域名
     private Handler handler = new Handler(Looper.getMainLooper());
-    private Runnable pollRunnable;      // 3秒轮询（等待连接）
-    private Runnable roomCheckRunnable; // 10秒轮询（检查房间是否还在）
-    private boolean isConnected = false; // 是否已连接成功
-    private boolean inCall = false;      // 是否在通话中（房间存在）
+    private Runnable pollRunnable;
+    private boolean isConnected = false;  // 是否已连接成功
+    private boolean inCall = false;       // 房间是否还存在（通话中）
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -116,7 +115,7 @@ public class MainActivity extends Activity {
 
     private void startPolling() {
         pollRunnable = this::pollServer;
-        handler.post(pollRunnable);  // 立即开始第一次
+        handler.post(pollRunnable);  // 立即开始
     }
 
     private void pollServer() {
@@ -135,19 +134,34 @@ public class MainActivity extends Activity {
                 String response = content.toString();
 
                 JSONObject json = new JSONObject(response);
-                if (json.has("answer") && !json.isNull("answer") || (json.has("candidates") && json.getJSONArray("candidates").length() > 0)) {
+
+                // 判断房间是否还存在
+                boolean roomExists = json.has("answer") || (json.has("candidates") && json.getJSONArray("candidates").length() > 0);
+
+                if (roomExists) {
                     if (!isConnected) {
                         isConnected = true;
                         inCall = true;
+                        runOnUiThread(this::sendNotification);
+                    }
+                } else {
+                    // 房间不存在（挂断）
+                    if (isConnected || inCall) {
+                        isConnected = false;
+                        inCall = false;
                         runOnUiThread(() -> {
-                            sendNotification();
-                            stopPolling();           // 停止 3 秒轮询
-                            startRoomCheck();        // 开始 10 秒房间存活检查
+                            // 可选：这里加 Toast 或其他提示
+                            // Toast.makeText(this, "通话已结束", Toast.LENGTH_SHORT).show();
                         });
                     }
                 }
             } catch (Exception e) {
                 e.printStackTrace();
+                // 网络异常 → 认为房间可能已删
+                runOnUiThread(() -> {
+                    isConnected = false;
+                    inCall = false;
+                });
             }
         }).start();
     }
@@ -163,50 +177,9 @@ public class MainActivity extends Activity {
         NotificationManagerCompat.from(this).notify(1, builder.build());
     }
 
-    private void stopPolling() {
-        if (pollRunnable != null) {
-            handler.removeCallbacks(pollRunnable);
-        }
-    }
-
-    // 每10秒检查房间是否还存在（如果房间被删，视为挂断）
-    private void startRoomCheck() {
-        roomCheckRunnable = () -> {
-            new Thread(() -> {
-                try {
-                    URL url = new URL(baseUrl + "poll/" + room);
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setRequestMethod("GET");
-                    int responseCode = conn.getResponseCode();
-
-                    if (responseCode != 200) {  // 非 200 → 房间已删除
-                        runOnUiThread(() -> {
-                            isConnected = false;
-                            inCall = false;
-                            startPolling();  // 重启 3 秒轮询
-                        });
-                    } else {
-                        // 房间还在，继续检查
-                        handler.postDelayed(roomCheckRunnable, 10000);
-                    }
-                } catch (Exception e) {
-                    runOnUiThread(() -> {
-                        isConnected = false;
-                        inCall = false;
-                        startPolling();
-                    });
-                    e.printStackTrace();
-                }
-            }).start();
-        };
-        handler.postDelayed(roomCheckRunnable, 10000);  // 首次延迟10秒
-    }
-
-    // 小窗：只有在通话中（房间存在）才进入
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && inCall) {
             PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
             Rational aspectRatio = new Rational(16, 9);
@@ -232,9 +205,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (handler != null) {
-            if (pollRunnable != null) handler.removeCallbacks(pollRunnable);
-            if (roomCheckRunnable != null) handler.removeCallbacks(roomCheckRunnable);
+        if (handler != null && pollRunnable != null) {
+            handler.removeCallbacks(pollRunnable);
         }
     }
 
