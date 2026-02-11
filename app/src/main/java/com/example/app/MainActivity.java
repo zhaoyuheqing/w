@@ -41,7 +41,8 @@ public class MainActivity extends Activity {
     private String baseUrl = "https://bh.gitj.dpdns.org/";
     private Handler handler = new Handler(Looper.getMainLooper());
     private Runnable pollRunnable;
-    private boolean isConnected = false;
+    private boolean hasOffer = false;      // 是否看到 offer（用于通知）
+    private boolean allowPiP = false;      // 是否看到 answer（用于小窗）
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -137,30 +138,41 @@ public class MainActivity extends Activity {
 
                     JSONObject json = new JSONObject(response);
 
-                    // 严格判断：只有有 answer 才算连接成功
-                    boolean roomActive = json.has("answer") && !json.isNull("answer");
+                    boolean hasOfferNow = json.has("offer") && !json.isNull("offer");
+                    boolean hasAnswer = json.has("answer") && !json.isNull("answer");
 
                     runOnUiThread(() -> {
-                        if (roomActive) {
-                            if (!isConnected) {
-                                isConnected = true;
-                                sendNotification();
-                            }
-                        } else {
-                            isConnected = false;
+                        // 看到 offer → 发送通知（首次）
+                        if (hasOfferNow && !hasOffer) {
+                            hasOffer = true;
+                            sendNotification();
+                        }
+
+                        // 有 answer → 允许小窗
+                        allowPiP = hasAnswer;
+
+                        // 房间完全消失 → 重置
+                        if (!hasOfferNow && !hasAnswer) {
+                            hasOffer = false;
+                            allowPiP = false;
                         }
                     });
                 } else {
-                    runOnUiThread(() -> isConnected = false);
+                    runOnUiThread(() -> {
+                        hasOffer = false;
+                        allowPiP = false;
+                    });
                 }
             } catch (Exception e) {
-                runOnUiThread(() -> isConnected = false);
+                runOnUiThread(() -> {
+                    hasOffer = false;
+                    allowPiP = false;
+                });
                 e.printStackTrace();
             }
 
-            // 动态间隔：连接成功后 10 秒一次，否则 3 秒一次
-            long delay = isConnected ? 10000 : 3000;
-            handler.postDelayed(pollRunnable, delay);
+            // 继续轮询（固定 5 秒，连接后快速检测）
+            handler.postDelayed(pollRunnable, 5000);
         }).start();
     }
 
@@ -178,9 +190,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isConnected) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && allowPiP) {
             PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
-            Rational aspectRatio = new Rational(9, 16);  // 改为竖屏 9:16
+            Rational aspectRatio = new Rational(16, 9);
             pipBuilder.setAspectRatio(aspectRatio);
             enterPictureInPictureMode(pipBuilder.build());
         }
