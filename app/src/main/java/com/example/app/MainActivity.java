@@ -15,7 +15,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Rational;
 import android.webkit.PermissionRequest;
-import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -42,7 +41,8 @@ public class MainActivity extends Activity {
     private String baseUrl = "https://bh.gitj.dpdns.org/";
     private Handler handler = new Handler(Looper.getMainLooper());
     private Runnable pollRunnable;
-    private boolean isConnected = false;
+    private boolean hasOffer = false;      // 是否看到 offer（用于通知）
+    private boolean allowPiP = false;      // 是否看到 answer（用于小窗）
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -91,76 +91,26 @@ public class MainActivity extends Activity {
     }
 
     private void promptForKey() {
-        showKeyInputDialog();
-    }
-
-    private void showKeyInputDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("输入认证密钥");
         final EditText input = new EditText(this);
         builder.setView(input);
         builder.setPositiveButton("确定", (dialog, which) -> {
-            String newKey = input.getText().toString().trim();
-            if (newKey.isEmpty()) {
-                showErrorAndRetry("密钥不能为空");
-                return;
-            }
-            authKey = newKey;
+            authKey = input.getText().toString().trim();
             prefs.edit().putString("auth_key", authKey).putBoolean("first_run", false).apply();
             loadUrlWithKey();
-            checkIfKeyValid();
+            startPolling();
         });
         builder.setNegativeButton("取消", (dialog, which) -> {
             dialog.cancel();
             finish();
         });
-        builder.setCancelable(false);
         builder.show();
-    }
-
-    private void showErrorAndRetry(String message) {
-        new AlertDialog.Builder(this)
-                .setTitle("错误")
-                .setMessage(message)
-                .setPositiveButton("重新输入", (dialog, which) -> showKeyInputDialog())
-                .setNegativeButton("退出", (dialog, which) -> finish())
-                .setCancelable(false)
-                .show();
     }
 
     private void loadUrlWithKey() {
         String fullUrl = baseUrl + "?auth=" + authKey + "&room=" + room;
         webView.loadUrl(fullUrl);
-    }
-
-    private void checkIfKeyValid() {
-        webView.evaluateJavascript(
-            "(function() {" +
-            "  try {" +
-            "    var title = document.title.toLowerCase();" +
-            "    var bodyText = document.body.innerText.toLowerCase();" +
-            "    if (title.includes('bing') || bodyText.includes('bing') || " +
-            "        document.querySelector('meta[name=\"msvalidate.01\"]') || " +
-            "        document.querySelector('link[href*=\"bing.com\"]')) {" +
-            "      return 'invalid';" +
-            "    }" +
-            "    return 'valid';" +
-            "  } catch(e) {" +
-            "    return 'error';" +
-            "  }" +
-            "})()",
-            new ValueCallback<String>() {
-                @Override
-                public void onReceiveValue(String result) {
-                    String res = result != null ? result.replace("\"", "") : "error";
-                    if ("invalid".equals(res)) {
-                        showErrorAndRetry("密钥错误，请重新输入");
-                    } else {
-                        // 密钥有效，继续轮询
-                        startPolling();
-                    }
-                }
-            });
     }
 
     private void startPolling() {
@@ -188,27 +138,41 @@ public class MainActivity extends Activity {
 
                     JSONObject json = new JSONObject(response);
 
-                    boolean roomActive = json.has("answer") && !json.isNull("answer");
+                    boolean hasOfferNow = json.has("offer") && !json.isNull("offer");
+                    boolean hasAnswer = json.has("answer") && !json.isNull("answer");
 
                     runOnUiThread(() -> {
-                        if (roomActive) {
-                            if (!isConnected) {
-                                isConnected = true;
-                                sendNotification();
-                            }
-                        } else {
-                            isConnected = false;
+                        // 看到 offer → 发送通知（首次）
+                        if (hasOfferNow && !hasOffer) {
+                            hasOffer = true;
+                            sendNotification();
+                        }
+
+                        // 有 answer → 允许小窗
+                        allowPiP = hasAnswer;
+
+                        // 房间完全消失 → 重置
+                        if (!hasOfferNow && !hasAnswer) {
+                            hasOffer = false;
+                            allowPiP = false;
                         }
                     });
                 } else {
-                    runOnUiThread(() -> isConnected = false);
+                    runOnUiThread(() -> {
+                        hasOffer = false;
+                        allowPiP = false;
+                    });
                 }
             } catch (Exception e) {
-                runOnUiThread(() -> isConnected = false);
+                runOnUiThread(() -> {
+                    hasOffer = false;
+                    allowPiP = false;
+                });
                 e.printStackTrace();
             }
 
-            handler.postDelayed(pollRunnable, 10000);
+            // 继续轮询（固定 5 秒，连接后快速检测）
+            handler.postDelayed(pollRunnable, 5000);
         }).start();
     }
 
@@ -226,7 +190,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isConnected) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && allowPiP) {
             PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
             Rational aspectRatio = new Rational(16, 9);
             pipBuilder.setAspectRatio(aspectRatio);
@@ -237,6 +201,36 @@ public class MainActivity extends Activity {
     @Override
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
+
+        if (isInPictureInPictureMode) {
+            // 进入小窗时，强制隐藏网页中的本地视频小窗，让远程视频占满
+            webView.evaluateJavascript(
+                "(function() {" +
+                "  try {" +
+                "    var local = document.getElementById('localVideo');" +  // ← 替换成实际本地视频 ID
+                "    var remote = document.getElementById('remoteVideo');" +  // ← 替换成实际远程视频 ID
+                "    if (local) {" +
+                "      local.style.display = 'none !important';" +
+                "      local.style.visibility = 'hidden';" +
+                "      local.style.width = '0px';" +
+                "      local.style.height = '0px';" +
+                "      local.style.overflow = 'hidden';" +
+                "    }" +
+                "    if (remote) {" +
+                "      remote.style.width = '100% !important';" +
+                "      remote.style.height = '100% !important';" +
+                "      remote.style.position = 'fixed';" +
+                "      remote.style.top = '0';" +
+                "      remote.style.left = '0';" +
+                "      remote.style.margin = '0';" +
+                "      remote.style.padding = '0';" +
+                "      remote.style.objectFit = 'cover';" +
+                "    }" +
+                "  } catch(e) {}" +
+                "})()",
+                null
+            );
+        }
     }
 
     @Override
