@@ -203,35 +203,20 @@ public class MainActivity extends Activity {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
 
         if (isInPictureInPictureMode) {
-            // 进入小窗：隐藏本地视频小窗，让远程占满
+            // 进入小窗：隐藏网址中的本地视频小窗
             webView.evaluateJavascript(
                 "(function() {" +
                 "  try {" +
                 "    var local = document.getElementById('localVideo');" +  // ← 替换成你的本地视频 ID
-                "    var remote = document.getElementById('remoteVideo');" +  // ← 替换成你的远程视频 ID
                 "    if (local) {" +
                 "      local.style.display = 'none !important';" +
-                "      local.style.visibility = 'hidden';" +
-                "      local.style.width = '0px';" +
-                "      local.style.height = '0px';" +
-                "      local.style.overflow = 'hidden';" +
-                "    }" +
-                "    if (remote) {" +
-                "      remote.style.width = '100% !important';" +
-                "      remote.style.height = '100% !important';" +
-                "      remote.style.position = 'fixed';" +
-                "      remote.style.top = '0';" +
-                "      remote.style.left = '0';" +
-                "      remote.style.margin = '0';" +
-                "      remote.style.padding = '0';" +
-                "      remote.style.objectFit = 'cover';" +
                 "    }" +
                 "  } catch(e) {}" +
                 "})()",
                 null
             );
         } else {
-            // 退出小窗：恢复本地视频显示
+            // 退出小窗：只恢复本地视频显示，不干预网页缩放或布局
             webView.evaluateJavascript(
                 "(function() {" +
                 "  try {" +
@@ -239,12 +224,6 @@ public class MainActivity extends Activity {
                 "    if (local) {" +
                 "      local.style.display = 'block !important';" +
                 "      local.style.visibility = 'visible';" +
-                "      local.style.width = '160px';" +   // ← 恢复原始大小（根据网页调整）
-                "      local.style.height = '120px';" +  // ← 恢复原始大小
-                "      local.style.position = 'absolute';" +
-                "      local.style.bottom = '20px';" +
-                "      local.style.right = '20px';" +
-                "      local.style.overflow = 'visible';" +
                 "    }" +
                 "  } catch(e) {}" +
                 "})()",
