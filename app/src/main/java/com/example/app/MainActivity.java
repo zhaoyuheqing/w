@@ -203,12 +203,12 @@ public class MainActivity extends Activity {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
 
         if (isInPictureInPictureMode) {
-            // 进入小窗时，强制隐藏网页中的本地视频小窗，让远程视频占满
+            // 进入小窗：隐藏本地视频小窗，让远程占满
             webView.evaluateJavascript(
                 "(function() {" +
                 "  try {" +
-                "    var local = document.getElementById('localVideo');" +  // ← 替换成实际本地视频 ID
-                "    var remote = document.getElementById('remoteVideo');" +  // ← 替换成实际远程视频 ID
+                "    var local = document.getElementById('localVideo');" +  // ← 替换成你的本地视频 ID
+                "    var remote = document.getElementById('remoteVideo');" +  // ← 替换成你的远程视频 ID
                 "    if (local) {" +
                 "      local.style.display = 'none !important';" +
                 "      local.style.visibility = 'hidden';" +
@@ -225,6 +225,26 @@ public class MainActivity extends Activity {
                 "      remote.style.margin = '0';" +
                 "      remote.style.padding = '0';" +
                 "      remote.style.objectFit = 'cover';" +
+                "    }" +
+                "  } catch(e) {}" +
+                "})()",
+                null
+            );
+        } else {
+            // 退出小窗：恢复本地视频显示
+            webView.evaluateJavascript(
+                "(function() {" +
+                "  try {" +
+                "    var local = document.getElementById('localVideo');" +
+                "    if (local) {" +
+                "      local.style.display = 'block !important';" +
+                "      local.style.visibility = 'visible';" +
+                "      local.style.width = '160px';" +   // ← 恢复原始大小（根据网页调整）
+                "      local.style.height = '120px';" +  // ← 恢复原始大小
+                "      local.style.position = 'absolute';" +
+                "      local.style.bottom = '20px';" +
+                "      local.style.right = '20px';" +
+                "      local.style.overflow = 'visible';" +
                 "    }" +
                 "  } catch(e) {}" +
                 "})()",
