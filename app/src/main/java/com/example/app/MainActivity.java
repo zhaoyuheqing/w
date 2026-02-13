@@ -201,48 +201,7 @@ public class MainActivity extends Activity {
     @Override
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
-
-        if (isInPictureInPictureMode) {
-            // 进入小窗：隐藏本地视频小窗
-            webView.evaluateJavascript(
-                "(function() {" +
-                "  try {" +
-                "    var local = document.getElementById('localVideo');" +  // ← 替换成你的本地视频 ID
-                "    if (local) {" +
-                "      local.style.display = 'none !important';" +
-                "      local.style.visibility = 'hidden';" +
-                "      local.style.width = '0px';" +
-                "      local.style.height = '0px';" +
-                "      local.style.overflow = 'hidden';" +
-                "    }" +
-                "  } catch(e) {}" +
-                "})()",
-                null
-            );
-        } else {
-            // 退出小窗：恢复本地视频，并强制恢复正常比例
-            webView.evaluateJavascript(
-                "(function() {" +
-                "  try {" +
-                "    var local = document.getElementById('localVideo');" +
-                "    if (local) {" +
-                "      local.style.display = 'block !important';" +
-                "      local.style.visibility = 'visible';" +
-                "      local.style.width = '160px !important';" +   // ← 替换成网页原始宽度（F12 查看）
-                "      local.style.height = '120px !important';" +  // ← 替换成网页原始高度
-                "      local.style.position = 'absolute';" +
-                "      local.style.bottom = '20px';" +
-                "      local.style.right = '20px';" +
-                "      local.style.zIndex = '10';" +
-                "      local.style.overflow = 'visible';" +
-                "    }" +
-                "    // 强制触发 resize 事件，让网页重新计算布局和比例
-                "    window.dispatchEvent(new Event('resize'));" +
-                "  } catch(e) {}" +
-                "})()",
-                null
-            );
-        }
+        // 什么都不做，让系统默认处理等比例缩放和恢复
     }
 
     @Override
