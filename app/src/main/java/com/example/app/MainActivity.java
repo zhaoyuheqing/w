@@ -203,7 +203,7 @@ public class MainActivity extends Activity {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
 
         if (isInPictureInPictureMode) {
-            // 进入小窗：隐藏网页中的本地视频小窗
+            // 进入小窗：隐藏本地视频小窗
             webView.evaluateJavascript(
                 "(function() {" +
                 "  try {" +
@@ -211,6 +211,8 @@ public class MainActivity extends Activity {
                 "    if (local) {" +
                 "      local.style.display = 'none !important';" +
                 "      local.style.visibility = 'hidden';" +
+                "      local.style.width = '0px';" +
+                "      local.style.height = '0px';" +
                 "    }" +
                 "  } catch(e) {}" +
                 "})()",
@@ -218,11 +220,11 @@ public class MainActivity extends Activity {
             );
         } else {
             // 退出小窗：恢复本地视频显示，并强制恢复正常比例
-            webView.postDelayed(() -> {  // 延迟 300ms，确保系统完成全屏恢复
+            webView.postDelayed(() -> {
                 webView.evaluateJavascript(
                     "(function() {" +
                     "  try {" +
-                    "    var local = document.getElementById('localVideo');" +  // ← 替换成你的本地视频 ID
+                    "    var local = document.getElementById('localVideo');" +
                     "    if (local) {" +
                     "      local.style.display = 'block !important';" +
                     "      local.style.visibility = 'visible';" +
@@ -233,13 +235,12 @@ public class MainActivity extends Activity {
                     "      local.style.right = '20px';" +
                     "      local.style.zIndex = '10';" +
                     "    }" +
-                    "    // 强制触发 resize 事件，让网页重新计算布局和比例
                     "    window.dispatchEvent(new Event('resize'));" +
                     "  } catch(e) {}" +
                     "})()",
                     null
                 );
-            }, 300);  // 延迟 300ms 更可靠
+            }, 300);
         }
     }
 
