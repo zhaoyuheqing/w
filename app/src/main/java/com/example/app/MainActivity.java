@@ -142,16 +142,13 @@ public class MainActivity extends Activity {
                     boolean hasAnswer = json.has("answer") && !json.isNull("answer");
 
                     runOnUiThread(() -> {
-                        // 看到 offer → 发送通知（首次）
                         if (hasOfferNow && !hasOffer) {
                             hasOffer = true;
                             sendNotification();
                         }
 
-                        // 有 answer → 允许小窗
                         allowPiP = hasAnswer;
 
-                        // 房间完全消失 → 重置
                         if (!hasOfferNow && !hasAnswer) {
                             hasOffer = false;
                             allowPiP = false;
@@ -171,7 +168,6 @@ public class MainActivity extends Activity {
                 e.printStackTrace();
             }
 
-            // 继续轮询（固定 5 秒，连接后快速检测）
             handler.postDelayed(pollRunnable, 5000);
         }).start();
     }
@@ -207,19 +203,31 @@ public class MainActivity extends Activity {
             webView.evaluateJavascript(
                 "(function() {" +
                 "  try {" +
-                "    var local = document.getElementById('localVideo');" +  // ← 替换成实际 ID
+                "    var local = document.getElementById('localVideo');" +  // ← 替换成实际本地视频 ID
                 "    if (local) {" +
-                "      local.style.display = 'none !important';" +
+                "      local.style.display = 'none';" +
                 "    }" +
                 "  } catch(e) {}" +
                 "})()",
                 null
             );
         } else {
-            // 退出小窗时强制刷新页面，彻底清空隐藏状态并恢复正常比例
+            // 退出小窗时恢复本地视频（延迟 + 清空内联样式）
             webView.postDelayed(() -> {
-                webView.evaluateJavascript("location.reload();", null);
-            }, 800);  // 延迟 800ms 后刷新，避免动画中断
+                webView.evaluateJavascript(
+                    "(function() {" +
+                    "  try {" +
+                    "    var local = document.getElementById('localVideo');" +
+                    "    if (local) {" +
+                    "      local.style.cssText = '';" +  // 清空所有内联样式
+                    "      local.style.display = 'block';" +
+                    "      local.style.visibility = 'visible';" +
+                    "    }" +
+                    "  } catch(e) {}" +
+                    "})()",
+                    null
+                );
+            }, 800);  // 延迟 800ms，确保系统视口恢复完成
         }
     }
 
