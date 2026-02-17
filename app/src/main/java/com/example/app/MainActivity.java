@@ -41,8 +41,8 @@ public class MainActivity extends Activity {
     private String baseUrl = "https://bh.gitj.dpdns.org/";
     private Handler handler = new Handler(Looper.getMainLooper());
     private Runnable pollRunnable;
-    private boolean hasOffer = false;
-    private boolean allowPiP = false;
+    private boolean hasOffer = false;      // 是否看到 offer（用于通知）
+    private boolean allowPiP = false;      // 是否看到 answer（用于小窗）
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -142,13 +142,16 @@ public class MainActivity extends Activity {
                     boolean hasAnswer = json.has("answer") && !json.isNull("answer");
 
                     runOnUiThread(() -> {
+                        // 看到 offer → 发送通知（首次）
                         if (hasOfferNow && !hasOffer) {
                             hasOffer = true;
                             sendNotification();
                         }
 
+                        // 有 answer → 允许小窗
                         allowPiP = hasAnswer;
 
+                        // 房间完全消失 → 重置
                         if (!hasOfferNow && !hasAnswer) {
                             hasOffer = false;
                             allowPiP = false;
@@ -168,6 +171,7 @@ public class MainActivity extends Activity {
                 e.printStackTrace();
             }
 
+            // 继续轮询（固定 5 秒，连接后快速检测）
             handler.postDelayed(pollRunnable, 5000);
         }).start();
     }
@@ -199,37 +203,23 @@ public class MainActivity extends Activity {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
 
         if (isInPictureInPictureMode) {
+            // 进入小窗时隐藏本地视频小窗
             webView.evaluateJavascript(
                 "(function() {" +
                 "  try {" +
-                "    var local = document.getElementById('localVideo');" +
+                "    var local = document.getElementById('localVideo');" +  // ← 替换成实际 ID
                 "    if (local) {" +
                 "      local.style.display = 'none !important';" +
-                "      local.style.visibility = 'hidden';" +
                 "    }" +
                 "  } catch(e) {}" +
                 "})()",
                 null
             );
         } else {
+            // 退出小窗时强制刷新页面，彻底清空隐藏状态并恢复正常比例
             webView.postDelayed(() -> {
-                webView.evaluateJavascript(
-                    "(function() {" +
-                    "  try {" +
-                    "    var local = document.getElementById('localVideo');" +
-                    "    if (local) {" +
-                    "      local.style.cssText = '';" +
-                    "      local.style.display = 'block';" +
-                    "      local.style.visibility = 'visible';" +
-                    "    }" +
-                    "    window.dispatchEvent(new Event('resize'));" +
-                    "    setTimeout(() => window.dispatchEvent(new Event('resize')), 100);" +
-                    "    setTimeout(() => window.dispatchEvent(new Event('resize')), 300);" +
-                    "  } catch(e) {}" +
-                    "})()",
-                    null
-                );
-            }, 800);
+                webView.evaluateJavascript("location.reload();", null);
+            }, 800);  // 延迟 800ms 后刷新，避免动画中断
         }
     }
 
