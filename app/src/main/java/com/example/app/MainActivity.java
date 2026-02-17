@@ -203,7 +203,7 @@ public class MainActivity extends Activity {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
 
         if (isInPictureInPictureMode) {
-            // 进入小窗：隐藏本地视频小窗
+            // 进入小窗时隐藏网页中的本地视频小窗
             webView.evaluateJavascript(
                 "(function() {" +
                 "  try {" +
@@ -211,32 +211,32 @@ public class MainActivity extends Activity {
                 "    if (local) {" +
                 "      local.style.display = 'none !important';" +
                 "      local.style.visibility = 'hidden';" +
-                "      local.style.width = '0px';" +
-                "      local.style.height = '0px';" +
                 "    }" +
                 "  } catch(e) {}" +
                 "})()",
                 null
             );
         } else {
-            // 退出小窗：恢复本地视频显示，并强制网页认为“窗口变大了”
+            // 退出小窗时恢复本地视频显示，并强制恢复正常比例
             webView.postDelayed(() -> {
                 webView.evaluateJavascript(
                     "(function() {" +
                     "  try {" +
                     "    var local = document.getElementById('localVideo');" +
                     "    if (local) {" +
-                    "      local.style.display = 'block !important';" +
+                    "      local.style.cssText = '';" +  // 清空所有内联样式，让网页原始 CSS 完全接管
+                    "      local.style.display = 'block';" +
                     "      local.style.visibility = 'visible';" +
-                    "      local.style.width = '160px !important';" +
-                    "      local.style.height = '120px !important';" +
                     "    }" +
+                    "    // 多次触发 resize，确保布局重算
                     "    window.dispatchEvent(new Event('resize'));" +
+                    "    setTimeout(() => window.dispatchEvent(new Event('resize')), 100);" +
+                    "    setTimeout(() => window.dispatchEvent(new Event('resize')), 300);" +
                     "  } catch(e) {}" +
                     "})()",
                     null
                 );
-            }, 300);
+            }, 800);  // 延迟 800ms，确保系统全屏视口恢复完成
         }
     }
 
