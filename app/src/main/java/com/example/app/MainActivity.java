@@ -203,20 +203,41 @@ public class MainActivity extends Activity {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
 
         if (isInPictureInPictureMode) {
-            // 进入小窗时隐藏本地视频小窗
+            // 进入小窗：隐藏本地视频小窗
             webView.evaluateJavascript(
                 "(function() {" +
                 "  try {" +
-                "    var local = document.getElementById('localVideo');" +  // ← 替换成实际本地视频 ID
+                "    var local = document.getElementById('localVideo');" +
                 "    if (local) {" +
                 "      local.style.display = 'none !important';" +
+                "      local.style.visibility = 'hidden';" +
+                "      local.style.width = '0px';" +
+                "      local.style.height = '0px';" +
                 "    }" +
                 "  } catch(e) {}" +
                 "})()",
                 null
             );
+        } else {
+            // 退出小窗：恢复本地视频显示，并强制网页认为“窗口变大了”
+            webView.postDelayed(() -> {
+                webView.evaluateJavascript(
+                    "(function() {" +
+                    "  try {" +
+                    "    var local = document.getElementById('localVideo');" +
+                    "    if (local) {" +
+                    "      local.style.display = 'block !important';" +
+                    "      local.style.visibility = 'visible';" +
+                    "      local.style.width = '160px !important';" +
+                    "      local.style.height = '120px !important';" +
+                    "    }" +
+                    "    window.dispatchEvent(new Event('resize'));" +
+                    "  } catch(e) {}" +
+                    "})()",
+                    null
+                );
+            }, 300);
         }
-        // 退出小窗时，什么都不做，让系统和网页自己恢复
     }
 
     @Override
