@@ -192,7 +192,8 @@ public class MainActivity extends Activity {
         super.onUserLeaveHint();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && allowPiP) {
             PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
-            Rational aspectRatio = new Rational(16, 9);
+            // 修改为相反比例：9:16（竖屏，高 > 宽）
+            Rational aspectRatio = new Rational(9, 16);
             pipBuilder.setAspectRatio(aspectRatio);
             enterPictureInPictureMode(pipBuilder.build());
         }
@@ -207,7 +208,7 @@ public class MainActivity extends Activity {
             webView.evaluateJavascript(
                 "(function() {" +
                 "  try {" +
-                "    var local = document.getElementById('localVideo');" +  // ← 替换成实际本地视频 ID
+                "    var local = document.getElementById('localVideo');" +
                 "    if (local) {" +
                 "      local.style.display = 'none';" +
                 "    }" +
@@ -223,7 +224,7 @@ public class MainActivity extends Activity {
                     "  try {" +
                     "    var local = document.getElementById('localVideo');" +
                     "    if (local) {" +
-                    "      local.style.removeProperty('display');" +  // 删除内联 display 属性
+                    "      local.style.removeProperty('display');" +
                     "      local.style.removeProperty('visibility');" +
                     "      local.style.removeProperty('width');" +
                     "      local.style.removeProperty('height');" +
@@ -233,7 +234,7 @@ public class MainActivity extends Activity {
                     "})()",
                     null
                 );
-            }, 800);  // 延迟 800ms，确保系统视口恢复完成
+            }, 800);
         }
     }
 
